@@ -14,6 +14,10 @@ import {
   updateSpheresAndIntersections,
 } from "./threeUtils";
 import { updateCoordinates } from "./matrixUtils";
+import { Button } from "~/components/ui/button";
+import { Switch, SwitchControl, SwitchLabel } from "~/components/ui/switch";
+import { Slider } from "~/components/ui/slider";
+import { Card } from "~/components/ui/card";
 
 interface ThreeJSGraphProps {
   graph: Graph;
@@ -37,15 +41,15 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
   } | null>(null);
   const [showGrid, setShowGrid] = createSignal(false);
   const [isPlaying, setIsPlaying] = createSignal(false);
-  const [timeDirection, setTimeDirection] = createSignal(1); // Control playback speed and direction
+  const [timeDirection, setTimeDirection] = createSignal(1);
   const [currentTransformationIndex, setCurrentTransformationIndex] = createSignal(0);
   const [interpolationFactor, setInterpolationFactor] = createSignal(0);
 
   const [showSpheres, setShowSpheres] = createSignal(true);
   const [showIntersections, setShowIntersections] = createSignal(true);
-  const spheres: THREE.Mesh[] = []; // Array to hold sphere meshes
-  const circles: THREE.Mesh[] = []; // Array to hold sphere meshes
-  const intersectionPoints: THREE.Mesh[] = []; // Array to hold intersection markers
+  const spheres: THREE.Mesh[] = [];
+  const circles: THREE.Mesh[] = [];
+  const intersectionPoints: THREE.Mesh[] = [];
 
   const transformations = [
     new THREE.Matrix4().makeRotationY(Math.PI / 4),
@@ -57,7 +61,7 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
   const initialPositions: THREE.Vector3[] = [];
   const targetPositions: THREE.Vector3[] = [];
   const nodeMeshes: THREE.Mesh[] = [];
-  const nodeMeshMap: { [nodeId: string]: THREE.Mesh } = {}; // Map for quick access to node meshes
+  const nodeMeshMap: { [nodeId: string]: THREE.Mesh } = {};
   const edges: THREE.LineSegments[] = [];
 
   let animationFrameId: number | null = null;
@@ -70,31 +74,33 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
   createEffect(() => {
     if (!containerRef || !spheres.length) return;
 
-    spheres.forEach(sphere => (sphere.visible = showSpheres()));
+    spheres.forEach((sphere) => (sphere.visible = showSpheres()));
     updateSpheresAndIntersections(
       scene,
       props.graph,
       nodeMeshMap,
       spheres,
       circles,
-      intersectionPoints,
+      intersectionPoints
     );
   });
+
   createEffect(() => {
     if (!containerRef || !(circles.length || intersectionPoints.length)) return;
 
-    circles.forEach(circle => (circle.visible = showIntersections()));
-    intersectionPoints.forEach(point => (point.visible = showIntersections()));
+    circles.forEach((circle) => (circle.visible = showIntersections()));
+    intersectionPoints.forEach((point) => (point.visible = showIntersections()));
     updateSpheresAndIntersections(
       scene,
       props.graph,
       nodeMeshMap,
       spheres,
       circles,
-      intersectionPoints,
+      intersectionPoints
     );
   });
-  scene.rotation.x = -Math.PI / 2; // Rotate the scene so Z-axis is up
+
+  scene.rotation.x = -Math.PI / 2;
 
   onMount(() => {
     if (!containerRef) return;
@@ -102,7 +108,7 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
     const { renderer, controls, camera } = initSceneAndControls(
       props.width,
       props.height,
-      containerRef,
+      containerRef
     );
     setRenderer(renderer);
     setCamera(camera);
@@ -115,7 +121,7 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
       targetPositions,
       nodeMeshes,
       nodeMeshMap,
-      scene,
+      scene
     );
     props.setCoordinates(updateCoordinates(props.graph, nodeMeshMap));
 
@@ -126,49 +132,37 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
     };
     window.addEventListener("mousemove", onMouseMove);
 
-    // Draw edges between nodes using the utility function
     drawEdges(props.graph, nodeMeshMap, scene, edges);
-    // Initial setup of spheres and intersection points
     createSpheresAndIntersections(
       props.graph,
       nodeMeshMap,
       scene,
       spheres,
       circles,
-      intersectionPoints,
+      intersectionPoints
     );
 
     const animate = () => {
       controls.update();
-      
+
       if (isPlaying()) {
-        // Update interpolation factor
         let factor = interpolationFactor() + timeDirection() * 0.02;
         if (factor > 1) factor = 1;
         if (factor < 0) factor = 0;
         setInterpolationFactor(factor);
 
-        // Check if we’ve reached the boundary (1 or 0)
         if (factor === 1 || factor === 0) {
-          // Determine the next transformation index based on time direction
           let newIndex = currentTransformationIndex() + (timeDirection() > 0 ? 1 : -1);
 
-          // Stop playback if we’re at the end or beginning
           if (newIndex >= transformations.length || newIndex < 0) {
             setIsPlaying(false);
-            // // Set current index to the last valid transformation index
-            // setCurrentTransformationIndex(
-            //   Math.max(0, Math.min(transformations.length - 1, currentTransformationIndex())),
-            // );
             return;
           }
 
-          // Reset interpolation factor only if we haven’t reached the end or beginning
           if (newIndex < transformations.length && newIndex >= 0) {
             setInterpolationFactor(timeDirection() > 0 ? 0 : 1);
           }
 
-          // Move to the next transformation
           setCurrentTransformationIndex(newIndex);
 
           nodeMeshes.forEach((node, index) => {
@@ -183,11 +177,10 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
           node.position.lerpVectors(
             initialPositions[index],
             targetPositions[index],
-            Math.abs(interpolationFactor()),
+            Math.abs(interpolationFactor())
           );
         });
 
-        // Update coordinates and edges based on the latest node positions
         props.setCoordinates(updateCoordinates(props.graph, nodeMeshMap));
         updateEdges(props.graph, nodeMeshMap, edges);
         updateSpheresAndIntersections(
@@ -196,11 +189,10 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
           nodeMeshMap,
           spheres,
           circles,
-          intersectionPoints,
+          intersectionPoints
         );
       }
 
-      // Render hover effect
       raycaster.setFromCamera(mouse, camera);
       const intersects = raycaster.intersectObjects(nodeMeshes);
       if (intersects.length > 0) {
@@ -239,8 +231,8 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
     if (isPlaying()) setInterpolationFactor(timeDirection() > 0 ? 0 : 1);
   };
 
-  const handleSpeedChange = (event: Event) => {
-    const speed = parseFloat((event.target as HTMLInputElement).value);
+  const handleSpeedChange = (value: number[]) => {
+    const speed = value[0];
     setTimeDirection(Math.sign(timeDirection()) * speed);
   };
 
@@ -249,37 +241,31 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
     factor: number,
     scene: THREE.Scene,
     renderer: THREE.WebGLRenderer,
-    camera: THREE.PerspectiveCamera,
+    camera: THREE.PerspectiveCamera
   ) => {
     setCurrentTransformationIndex(index);
     setInterpolationFactor(factor);
     setIsPlaying(false);
 
-    // Reset all nodes to their initial positions
     nodeMeshes.forEach((node, nodeIndex) => {
       node.position.copy(initialPositions[nodeIndex]);
     });
 
-    // Apply all transformations up to the current index
     nodeMeshes.forEach((node, nodeIndex) => {
       for (let i = 0; i < index; i++) {
-        // Apply each transformation fully for previous steps
         node.position.applyMatrix4(transformations[i]);
       }
 
       if (index < transformations.length) {
-        // For the current step, apply the transformation partially based on factor
         const initialPosition = new THREE.Vector3().copy(node.position);
         const targetPosition = new THREE.Vector3()
           .copy(node.position)
           .applyMatrix4(transformations[index]);
 
-        // Interpolate between the initial and target position based on factor
         node.position.lerpVectors(initialPosition, targetPosition, factor);
       }
     });
 
-    // Update coordinates and edges based on the latest node positions
     props.setCoordinates(updateCoordinates(props.graph, nodeMeshMap));
     updateEdges(props.graph, nodeMeshMap, edges);
     updateSpheresAndIntersections(
@@ -288,91 +274,94 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
       nodeMeshMap,
       spheres,
       circles,
-      intersectionPoints,
+      intersectionPoints
     );
 
     renderer.render(scene, camera);
   };
 
   return (
-    <div
-      style={{ position: "relative", width: `${props.width}px`, height: `${props.height + 80}px` }}
-    >
+    <Card class="relative overflow-hidden">
       <div
-        ref={el => (containerRef = el)}
+        ref={(el) => (containerRef = el)}
+        class="rounded-t-lg"
         style={{ width: `${props.width}px`, height: `${props.height}px` }}
       />
+
+      {/* Hover info overlay */}
       {hoveredNodeInfo() && (
-        <div
-          style={{
-            position: "absolute",
-            top: "10px",
-            left: "10px",
-            padding: "8px",
-            "background-color": "rgba(255, 255, 255, 0.8)",
-            "border-radius": "4px",
-            "pointer-events": "none",
-          }}
-        >
-          <p>
-            <strong>{hoveredNodeInfo()!.label}</strong>
+        <div class="absolute top-4 left-4 rounded-lg border bg-card/95 backdrop-blur p-3 shadow-lg">
+          <p class="font-semibold text-sm">{hoveredNodeInfo()!.label}</p>
+          <p class="text-xs text-muted-foreground font-mono">
+            ({hoveredNodeInfo()!.coordinates.map((c) => c.toFixed(2)).join(", ")})
           </p>
-          <p>Coordinates: ({hoveredNodeInfo()!.coordinates.join(", ")})</p>
         </div>
       )}
-      <Timeline
-        transformations={transformations.length}
-        currentIndex={currentTransformationIndex}
-        interpolationFactor={interpolationFactor}
-        scene={scene}
-        renderer={renderer()}
-        camera={camera()}
-        onScrub={handleScrub}
-      />
-      <div style={{ position: "absolute", top: "10px", right: "10px" }}>
-        <label>
-          <input
-            type="checkbox"
-            checked={showGrid()}
-            onChange={e => setShowGrid(e.currentTarget.checked)}
-          />
-          Show Grid
-        </label>
-        <label style={{ "margin-left": "10px" }}>
-          <input
-            type="checkbox"
-            checked={showSpheres()}
-            onChange={e => setShowSpheres(e.currentTarget.checked)}
-          />
-          Show Spheres
-        </label>
-        <label style={{ "margin-left": "10px" }}>
-          <input
-            type="checkbox"
-            checked={showIntersections()}
-            onChange={e => setShowIntersections(e.currentTarget.checked)}
-          />
-          Show Intersections
-        </label>
-        <button onClick={handlePlayPause} style={{ "margin-left": "10px" }}>
-          {isPlaying() ? "Pause" : "Play"}
-        </button>
-        <button onClick={handleDirectionToggle} style={{ "margin-left": "10px" }}>
-          {timeDirection() > 0 ? "Reverse" : "Forward"}
-        </button>
-        <label style={{ "margin-left": "10px" }}>
-          Speed:
-          <input
-            type="range"
-            min="0.1"
-            max="2"
-            step="0.1"
-            value={Math.abs(timeDirection())}
-            onInput={handleSpeedChange}
-            style={{ "margin-left": "5px" }}
-          />
-        </label>
+
+      {/* Controls panel */}
+      <div class="absolute top-4 right-4 flex flex-col gap-3 rounded-lg border bg-card/95 backdrop-blur p-3 shadow-lg">
+        <Switch checked={showGrid()} onChange={setShowGrid}>
+          <SwitchControl />
+          <SwitchLabel class="text-sm">Grid</SwitchLabel>
+        </Switch>
+        <Switch checked={showSpheres()} onChange={setShowSpheres}>
+          <SwitchControl />
+          <SwitchLabel class="text-sm">Spheres</SwitchLabel>
+        </Switch>
+        <Switch checked={showIntersections()} onChange={setShowIntersections}>
+          <SwitchControl />
+          <SwitchLabel class="text-sm">Intersections</SwitchLabel>
+        </Switch>
       </div>
-    </div>
+
+      {/* Playback controls */}
+      <div class="border-t p-4">
+        <div class="flex items-center gap-3 mb-3">
+          <Button size="sm" variant={isPlaying() ? "secondary" : "default"} onClick={handlePlayPause}>
+            {isPlaying() ? (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-4">
+                <path fill-rule="evenodd" d="M6.75 5.25a.75.75 0 01.75-.75H9a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H7.5a.75.75 0 01-.75-.75V5.25zm7.5 0A.75.75 0 0115 4.5h1.5a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H15a.75.75 0 01-.75-.75V5.25z" clip-rule="evenodd" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-4">
+                <path fill-rule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clip-rule="evenodd" />
+              </svg>
+            )}
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleDirectionToggle}>
+            {timeDirection() > 0 ? (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-4">
+                <path fill-rule="evenodd" d="M13.28 11.47a.75.75 0 010 1.06l-7.5 7.5a.75.75 0 01-1.06-1.06L11.69 12 4.72 5.03a.75.75 0 011.06-1.06l7.5 7.5z" clip-rule="evenodd" />
+                <path fill-rule="evenodd" d="M19.28 11.47a.75.75 0 010 1.06l-7.5 7.5a.75.75 0 11-1.06-1.06L17.69 12l-6.97-6.97a.75.75 0 011.06-1.06l7.5 7.5z" clip-rule="evenodd" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-4">
+                <path fill-rule="evenodd" d="M10.72 11.47a.75.75 0 000 1.06l7.5 7.5a.75.75 0 101.06-1.06L12.31 12l6.97-6.97a.75.75 0 00-1.06-1.06l-7.5 7.5z" clip-rule="evenodd" />
+                <path fill-rule="evenodd" d="M4.72 11.47a.75.75 0 000 1.06l7.5 7.5a.75.75 0 101.06-1.06L6.31 12l6.97-6.97a.75.75 0 00-1.06-1.06l-7.5 7.5z" clip-rule="evenodd" />
+              </svg>
+            )}
+          </Button>
+          <div class="w-32">
+            <Slider
+              minValue={0.1}
+              maxValue={2}
+              step={0.1}
+              value={[Math.abs(timeDirection())]}
+              onChange={handleSpeedChange}
+              label="Speed"
+            />
+          </div>
+        </div>
+        <Timeline
+          transformations={transformations.length}
+          currentIndex={currentTransformationIndex}
+          interpolationFactor={interpolationFactor}
+          scene={scene}
+          renderer={renderer()}
+          camera={camera()}
+          onScrub={handleScrub}
+        />
+      </div>
+    </Card>
   );
 }

@@ -1,5 +1,13 @@
-// MatrixTable.tsx
-import { type JSX } from "solid-js";
+import { type JSX, For } from "solid-js";
+import { Card, CardHeader, CardTitle, CardContent } from "~/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "~/components/ui/table";
 
 interface MatrixTableProps {
   title: string;
@@ -11,32 +19,42 @@ interface MatrixTableProps {
 
 export default function MatrixTable(props: MatrixTableProps): JSX.Element {
   return (
-    <div class="m-2 rounded border border-gray-400 p-2 shadow">
-      <h2 class="mb-2 text-center text-lg font-bold">{props.title}</h2>
-      <table class="w-full table-auto border-collapse">
-        <thead>
-          <tr>
-            <th></th>
-            {props.colLabels.map(label => (
-              <th class="border border-gray-300 px-2 py-1 text-center">{label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {props.matrix.map((row, rowIndex) => (
-            <tr>
-              <td class="border border-gray-300 px-2 py-1 text-center font-bold">
-                {props.rowLabels[rowIndex]}
-              </td>
-              {row.map(cell => (
-                <td class="border border-gray-300 px-2 py-1 text-center">
-                  {cell.toFixed(props.rounding).toLocaleString()}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Card>
+      <CardHeader class="pb-3">
+        <CardTitle class="text-base">{props.title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead class="w-20"></TableHead>
+              <For each={props.colLabels}>
+                {(label) => (
+                  <TableHead class="text-center font-mono text-xs">{label}</TableHead>
+                )}
+              </For>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <For each={props.matrix}>
+              {(row, rowIndex) => (
+                <TableRow>
+                  <TableCell class="font-medium font-mono text-xs">
+                    {props.rowLabels[rowIndex()]}
+                  </TableCell>
+                  <For each={row}>
+                    {(cell) => (
+                      <TableCell class="text-center font-mono text-xs tabular-nums">
+                        {props.rounding !== undefined ? cell.toFixed(props.rounding) : cell}
+                      </TableCell>
+                    )}
+                  </For>
+                </TableRow>
+              )}
+            </For>
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }

@@ -1,11 +1,13 @@
 // Timeline.tsx
-import { Accessor, createSignal } from "solid-js";
+import { Accessor, createSignal, For } from "solid-js";
 import type * as THREE from "three";
+import { cn } from "~/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 
 interface TimelineProps {
-  transformations: number; // Number of transformations
-  currentIndex: Accessor<number>; // Current transformation index
-  interpolationFactor: Accessor<number>; // Current interpolation progress (0 to 1)
+  transformations: number;
+  currentIndex: Accessor<number>;
+  interpolationFactor: Accessor<number>;
   scene: THREE.Scene;
   renderer: THREE.WebGLRenderer | null;
   camera: THREE.PerspectiveCamera | null;
@@ -14,13 +16,12 @@ interface TimelineProps {
     factor: number,
     scene: THREE.Scene,
     renderer: THREE.WebGLRenderer,
-    camera: THREE.PerspectiveCamera,
-  ) => void; // Handler for scrubbing to a point
+    camera: THREE.PerspectiveCamera
+  ) => void;
 }
 
 export default function Timeline(props: TimelineProps) {
-  const segmentWidth = 100 / props.transformations; // Percentage width for each segment
-  const [hoveredIndex, setHoveredIndex] = createSignal<number | null>(null);
+  const segmentWidth = 100 / props.transformations;
   const [isDragging, setIsDragging] = createSignal(false);
   let timelineRef: HTMLDivElement | null = null;
 
@@ -40,88 +41,77 @@ export default function Timeline(props: TimelineProps) {
 
     const segmentRect = (e.target as HTMLElement).getBoundingClientRect();
     const segmentRelativeX = e.clientX - segmentRect.left;
-    const segmentWidth = segmentRect.width;
+    const segmentWidthPx = segmentRect.width;
 
     const timelineRect = timelineRef.getBoundingClientRect();
     const timelineRelativeX = e.clientX - timelineRect.left;
 
-    // Calculate total progress across the entire timeline
-    const totalProgress = Math.max(0, Math.min(1, timelineRelativeX / timelineRect.width)); // Clamped between 0 and 1
+    const totalProgress = Math.max(0, Math.min(1, timelineRelativeX / timelineRect.width));
 
-    // Determine the transformation index and interpolation factor
     const index = Math.floor(totalProgress * props.transformations);
-    const factor = segmentRelativeX / segmentWidth;
+    const factor = segmentRelativeX / segmentWidthPx;
 
     props.renderer &&
       props.camera &&
       props.onScrub(index, factor, props.scene, props.renderer, props.camera);
   };
 
-  return (
-    <div
-      ref={el => (timelineRef = el)}
-      style={{
-        position: "relative",
-        width: "100%",
-        height: "40px",
-        background: "#ddd",
-        margin: "10px 0",
-        "user-select": "none",
-      }}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-    >
-      {Array.from({ length: props.transformations }).map((_, index) => (
-        <div
-          onMouseEnter={() => setHoveredIndex(index)}
-          onMouseLeave={() => setHoveredIndex(null)}
-          style={{
-            display: "inline-block",
-            width: `${segmentWidth}%`,
-            height: "100%",
-            background: index % 2 === 0 ? "#bbb" : "#ccc",
-            cursor: "pointer",
-            position: "relative",
-          }}
-        >
-          {/* Highlight current transformation segment */}
-          {index === props.currentIndex() && (
-            <div
-              style={{
-                position: "absolute",
-                left: `${props.interpolationFactor() * 100}%`,
-                top: 0,
-                height: "100%",
-                width: "2px",
-                background: "red",
-              }}
-            />
-          )}
+  const transformationNames = ["Rotation Y", "Scale", "Rotation Z", "Translate X"];
 
-          {/* Show transformation label on hover */}
-          {hoveredIndex() === index && (
-            <div
-              style={{
-                position: "absolute",
-                top: "-20px",
-                left: "50%",
-                transform: "translateX(-50%)",
-                background: "#444",
-                color: "#fff",
-                padding: "2px 5px",
-                "border-radius": "3px",
-                "font-size": "12px",
-              }}
-            >
-              Transformation {index + 1}
-            </div>
+  return (
+    <div class="space-y-2">
+      <div
+        ref={(el) => (timelineRef = el)}
+        class="relative h-8 w-full rounded-md bg-secondary overflow-hidden cursor-pointer select-none"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={() => setIsDragging(false)}
+      >
+        <For each={Array.from({ length: props.transformations })}>
+          {(_, index) => (
+            <Tooltip>
+              <TooltipTrigger
+                as="div"
+                class={cn(
+                  "inline-block h-full transition-colors",
+                  index() % 2 === 0 ? "bg-secondary" : "bg-secondary/70",
+                  index() === props.currentIndex() && "bg-primary/20"
+                )}
+                style={{ width: `${segmentWidth}%` }}
+              >
+                {/* Current position indicator */}
+                {index() === props.currentIndex() && (
+                  <div
+                    class="absolute top-0 h-full w-0.5 bg-primary shadow-sm"
+                    style={{ left: `${props.interpolationFactor() * 100}%` }}
+                  />
+                )}
+              </TooltipTrigger>
+              <TooltipContent>
+                <p class="font-medium">{transformationNames[index()] || `Step ${index() + 1}`}</p>
+              </TooltipContent>
+            </Tooltip>
           )}
-        </div>
-      ))}
-      <div>
-        {/* Show scrubber position */}
-        {`${((props.currentIndex() + props.interpolationFactor()) * segmentWidth).toFixed(2)}%: ${(props.currentIndex() + 1).toFixed()}/${props.transformations} Segment + ${(props.interpolationFactor() * 100).toFixed(2).toLocaleString()} Seg %`}
+        </For>
+
+        {/* Overall progress bar */}
+        <div
+          class="absolute top-0 left-0 h-full bg-primary/30 pointer-events-none transition-all"
+          style={{
+            width: `${((props.currentIndex() + props.interpolationFactor()) / props.transformations) * 100}%`,
+          }}
+        />
+      </div>
+
+      {/* Progress info */}
+      <div class="flex justify-between text-xs text-muted-foreground font-mono">
+        <span>
+          Step {props.currentIndex() + 1}/{props.transformations}
+        </span>
+        <span>
+          {((props.currentIndex() + props.interpolationFactor()) / props.transformations * 100).toFixed(0)}%
+        </span>
       </div>
     </div>
   );
