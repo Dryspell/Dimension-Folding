@@ -1,7 +1,11 @@
+// matrixUtils.ts - Matrix operations for graph analysis
 import Graph from "graphology";
 import * as THREE from "three";
 
-// Adjacency matrix function
+/**
+ * Create the adjacency matrix for a graph.
+ * A[i,j] = 1 if vertices i and j are connected by an edge.
+ */
 export const createAdjacencyMatrix = (graph: Graph) => {
   const nodes = graph.nodes();
   const matrix = Array(nodes.length)
@@ -17,12 +21,15 @@ export const createAdjacencyMatrix = (graph: Graph) => {
     });
   });
 
-  // Use node labels as row/column labels
-  const labels = nodes.map(node => graph.getNodeAttribute(node, "label"));
+  const labels = nodes.map((node) => graph.getNodeAttribute(node, "label"));
   return { matrix, labels };
 };
 
-// Incidence matrix function
+/**
+ * Create the incidence matrix for a graph.
+ * Rows = vertices, Columns = edges.
+ * M[v,e] = 1 if vertex v is incident to edge e.
+ */
 export const createIncidenceMatrix = (graph: Graph) => {
   const nodes = graph.nodes();
   const edges = graph.edges();
@@ -38,110 +45,132 @@ export const createIncidenceMatrix = (graph: Graph) => {
     if (targetIndex !== -1) matrix[targetIndex][edgeIndex] = 1;
   });
 
-  // Use node labels as row labels and edge ids as column labels
-  const rowLabels = nodes.map(node => graph.getNodeAttribute(node, "label"));
+  const rowLabels = nodes.map((node) => graph.getNodeAttribute(node, "label"));
   const colLabels = edges;
   return { matrix, rowLabels, colLabels };
 };
 
-// A utility type that creates a tuple of `0 | 1` values of given length `N`
-type ZeroOneTuple<N extends number, R extends Array<0 | 1> = []> = R["length"] extends N
-  ? R
-  : ZeroOneTuple<N, [...R, 0 | 1]>;
-
-// Function to assign independent dimensional coordinates to nodes
-export const assignIndependentCoordinates1 = (graph: Graph) => {
-  const nodes = graph.nodes();
-  const dimensions = Math.max(1, nodes.length - 1) as 1 | 2 | 3;
-
-  nodes.forEach((node, index) => {
-    // Create a temporary array and cast it to the tuple type at the end
-    const tempCoordinates = Array(dimensions).fill(0) as Array<0 | 1>;
-    if (index === 0) {
-      tempCoordinates.fill(1); // First node gets all ones
-    } else {
-      tempCoordinates[index - 1] = 1; // Each subsequent node gets one '1' at a unique position
-    }
-    const coordinates = tempCoordinates as ZeroOneTuple<typeof dimensions>;
-    graph.mergeNodeAttributes(node, { coordinates });
-  });
-};
-
-// Function to assign independent dimensional coordinates to nodes
+/**
+ * Assign 3D coordinates to graph nodes in "generic position".
+ *
+ * Generic position means the vertices are placed to avoid:
+ * - Collinear points (unless required by the graph structure)
+ * - Special symmetric positions that hide degrees of freedom
+ * - Degenerate configurations
+ *
+ * For a graph with n vertices, we place them as:
+ * - Node 0: origin (0, 0, 0)
+ * - Node 1: (1, 0, 0)
+ * - Node 2: (0, 1, 0)
+ * - Node 3: (0, 0, 1) if it exists
+ * - Additional nodes get positions that maintain generic position
+ *
+ * This ensures the framework is in generic position for rigidity analysis.
+ */
 export const assignIndependentCoordinates = (graph: Graph) => {
   const nodes = graph.nodes();
-  const dimensions = Math.max(1, nodes.length - 1) as 1 | 2 | 3;
 
   nodes.forEach((node, index) => {
-    // Create a temporary array and cast it to the tuple type at the end
-    const tempCoordinates = Array(dimensions).fill(0) as Array<0 | 1>;
-    if (index === 0) {
-      tempCoordinates.fill(0); // First node gets all ones
-    } else {
-      tempCoordinates[index - 1] = 1; // Each subsequent node gets one '1' at a unique position
+    let coordinates: [number, number, number];
+
+    switch (index) {
+      case 0:
+        coordinates = [0, 0, 0];
+        break;
+      case 1:
+        coordinates = [1, 0, 0];
+        break;
+      case 2:
+        coordinates = [0, 1, 0];
+        break;
+      case 3:
+        coordinates = [0, 0, 1];
+        break;
+      default:
+        // For additional nodes, use a generic position
+        // Offset to avoid special positions
+        coordinates = [
+          (index % 3) * 0.5 + 0.25,
+          Math.floor(index / 3) * 0.5 + 0.25,
+          (index % 2) * 0.5,
+        ];
     }
-    const coordinates = tempCoordinates as ZeroOneTuple<typeof dimensions>;
+
     graph.mergeNodeAttributes(node, { coordinates });
   });
 };
 
+/**
+ * Create a coordinate matrix from graph node positions.
+ */
 export const createCoordinateMatrix = (graph: Graph) => {
   const nodes = graph.nodes();
-  const labels = nodes.map(node => graph.getNodeAttribute(node, "label") as string);
-  const matrix = nodes.map(node => graph.getNodeAttribute(node, "coordinates") as Array<0 | 1>);
+  const labels = nodes.map((node) => graph.getNodeAttribute(node, "label") as string);
+  const matrix = nodes.map(
+    (node) => graph.getNodeAttribute(node, "coordinates") as [number, number, number]
+  );
 
   return { matrix, labels };
 };
 
-// Function to update coordinates matrix with the latest node positions
+/**
+ * Update coordinate matrix with current 3D mesh positions.
+ * Used to sync the UI display with the Three.js scene.
+ */
 export function updateCoordinates(
   graph: Graph,
-  nodeMeshMap: { [nodeId: string]: THREE.Mesh },
+  nodeMeshMap: { [nodeId: string]: THREE.Mesh }
 ): { [key: string]: [number, number, number] } {
   const newCoordinates: { [key: string]: [number, number, number] } = {};
+
   graph.forEachNode((nodeId, attr) => {
     const nodeMesh = nodeMeshMap[nodeId];
-    newCoordinates[attr.label] = [nodeMesh.position.x, nodeMesh.position.y, nodeMesh.position.z];
+    if (nodeMesh) {
+      newCoordinates[attr.label] = [
+        nodeMesh.position.x,
+        nodeMesh.position.y,
+        nodeMesh.position.z,
+      ];
+    }
   });
 
-  // console.log("New coordinates", newCoordinates);
   return newCoordinates;
 }
 
-function describeTransformation(matrix: THREE.Matrix4): string {
-  // Check for rotation around specific axes by comparing with identity rotation matrices
-  if (matrix.equals(new THREE.Matrix4().makeRotationY(Math.PI / 4))) {
-    return "Rotate by 45 degrees around the Y-axis.";
-  }
-  if (matrix.equals(new THREE.Matrix4().makeRotationZ(Math.PI / 4))) {
-    return "Rotate by 45 degrees around the Z-axis.";
-  }
-
-  // Check for scaling by comparing with identity scale matrix with specific factors
-  const scalingFactor = new THREE.Vector3();
-  matrix.decompose(new THREE.Vector3(), new THREE.Quaternion(), scalingFactor);
-  if (scalingFactor.equals(new THREE.Vector3(1.5, 1.5, 1.5))) {
-    return "Scale by a factor of 1.5 along all axes.";
-  }
-
-  // Check for translation by extracting the position component
+/**
+ * Describe a transformation matrix in human-readable form.
+ * Useful for displaying transformation steps in the UI.
+ */
+export function describeTransformation(matrix: THREE.Matrix4): string {
   const position = new THREE.Vector3();
-  matrix.decompose(position, new THREE.Quaternion(), new THREE.Vector3());
-  if (!position.equals(new THREE.Vector3(0, 0, 0))) {
-    return `Translate by (${position.x}, ${position.y}, ${position.z}).`;
+  const quaternion = new THREE.Quaternion();
+  const scale = new THREE.Vector3();
+
+  matrix.decompose(position, quaternion, scale);
+
+  const descriptions: string[] = [];
+
+  // Check for translation
+  if (position.lengthSq() > 0.0001) {
+    descriptions.push(`Translate by (${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)})`);
   }
 
-  // Default case if the transformation type isn't recognized
-  return "Unknown transformation";
+  // Check for scale
+  if (Math.abs(scale.x - 1) > 0.0001 || Math.abs(scale.y - 1) > 0.0001 || Math.abs(scale.z - 1) > 0.0001) {
+    if (scale.x === scale.y && scale.y === scale.z) {
+      descriptions.push(`Scale uniformly by ${scale.x.toFixed(2)}`);
+    } else {
+      descriptions.push(`Scale by (${scale.x.toFixed(2)}, ${scale.y.toFixed(2)}, ${scale.z.toFixed(2)})`);
+    }
+  }
+
+  // Check for rotation
+  const euler = new THREE.Euler().setFromQuaternion(quaternion);
+  const threshold = 0.0001;
+  if (Math.abs(euler.x) > threshold || Math.abs(euler.y) > threshold || Math.abs(euler.z) > threshold) {
+    const toDeg = (rad: number) => ((rad * 180) / Math.PI).toFixed(0);
+    descriptions.push(`Rotate (${toDeg(euler.x)}°, ${toDeg(euler.y)}°, ${toDeg(euler.z)}°)`);
+  }
+
+  return descriptions.length > 0 ? descriptions.join(", ") : "Identity";
 }
-
-// Example of describing a set of transformations
-// const transformations = [
-//   new THREE.Matrix4().makeRotationY(Math.PI / 4),
-//   new THREE.Matrix4().makeScale(1.5, 1.5, 1.5),
-//   new THREE.Matrix4().makeRotationZ(Math.PI / 4),
-//   new THREE.Matrix4().makeTranslation(1, 0, 0),
-// ];
-
-// // Generate descriptions
-// const transformationDescriptions = transformations.map(matrix => describeTransformation(matrix));
