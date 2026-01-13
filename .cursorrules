@@ -1,0 +1,372 @@
+# Dimension Folding - Cursor AI Rules
+
+> This project explores the mathematical relationship between graphs, matroids, and linkages.
+> It visualizes graph embeddings as mechanical linkages in 3D space and explores dimension folding.
+
+## Project Context
+
+### Domain Knowledge
+
+This is an **academic exploration project** at the intersection of:
+
+1. **Graph Theory**: Vertices and edges representing abstract combinatorial structures
+2. **Rigidity Theory**: Study of when bar-and-joint frameworks are rigid vs. flexible
+3. **Matroid Theory**: Algebraic abstraction of linear independence
+4. **Linkage Kinematics**: Mechanical systems of rigid bars connected at joints
+
+Key terminology to understand:
+- **Framework**: A graph G with a map p: V → ℝᵈ assigning positions to vertices
+- **Linkage**: Framework where edges represent rigid bars of fixed length
+- **Rigid**: Only motions preserving edge lengths are rigid motions (rotation + translation)
+- **Flexible**: Has non-trivial motions preserving edge lengths
+- **Degrees of Freedom (DOF)**: Dimension of the configuration space minus trivial motions
+- **Rigidity Matrix**: Jacobian of the edge length constraints
+
+### Mathematical Goals
+
+The **dimension folding problem**: Given a linkage in ℝᵈ, find the minimal dimension ℝᵏ (k ≤ d) into which it can be continuously deformed while preserving edge lengths.
+
+Examples:
+- K₁,₂ (V-shape): Folds to dimension 1 (can collapse to a line)
+- K₃ (Triangle): Minimally dimension 2 (rigid triangle)
+- K₄ (Tetrahedron): Minimally dimension 3 (rigid tetrahedron)
+
+---
+
+## Tech Stack
+
+| Technology | Version | Purpose |
+|-----------|---------|---------|
+| SolidJS | ^1.9 | Reactive UI with fine-grained reactivity |
+| SolidStart | ^1.1 | Meta-framework with file-based routing |
+| Three.js | ^0.182 | WebGL 3D rendering |
+| Graphology | ^0.26 | Graph data structures |
+| D3.js | ^7.9 | Visualization utilities |
+| Vinxi | ^0.5 | Build tooling |
+| TypeScript | Latest | Type safety |
+
+---
+
+## Code Conventions
+
+### TypeScript
+
+- Use strict typing; minimize `any` and `@ts-expect-error` where possible
+- Prefer interfaces over type aliases for object shapes
+- Use generics for reusable utilities
+- Document complex mathematical functions with JSDoc including formulas
+
+### SolidJS Patterns
+
+```typescript
+// ✅ Prefer createMemo for derived state
+const derivedValue = createMemo(() => computeFromSignals());
+
+// ✅ Use createEffect for side effects
+createEffect(() => {
+  // React to signal changes
+});
+
+// ✅ Pass Accessor types for reactive props
+interface Props {
+  value: Accessor<number>;  // Not just `number`
+}
+
+// ✅ Use Setter type for state modifiers
+interface Props {
+  setValue: Setter<number>;
+}
+```
+
+### Three.js Patterns
+
+```typescript
+// ✅ Clean up resources in onCleanup
+onMount(() => {
+  const renderer = new THREE.WebGLRenderer();
+  // ... setup
+  
+  onCleanup(() => {
+    renderer.dispose();
+    geometry.dispose();
+    material.dispose();
+  });
+});
+
+// ✅ Use typed Vector3 operations
+const position = new THREE.Vector3(x, y, z);
+position.copy(other);  // Not position = other
+
+// ✅ Update BufferGeometry attributes correctly
+geometry.attributes.position.needsUpdate = true;
+```
+
+### Graph/Matrix Conventions
+
+```typescript
+// ✅ Use Graphology's built-in iteration
+graph.forEachNode((node, attributes) => { });
+graph.forEachEdge((edge, attributes, source, target) => { });
+
+// ✅ Type node/edge attributes explicitly
+const graph = new Graph<NodeAttributes, EdgeAttributes>();
+
+// ✅ Use meaningful mathematical variable names
+const adjacencyMatrix = createAdjacencyMatrix(graph);
+const incidenceMatrix = createIncidenceMatrix(graph);
+const rigidityMatrix = computeRigidityMatrix(framework);
+```
+
+---
+
+## File Organization
+
+```
+src/routes/graphs/exploration/
+├── index.tsx          # Page component, composition root
+├── graphUtils.ts      # Graph construction functions (createK3Graph, etc.)
+├── matrixUtils.ts     # Matrix operations (adjacency, incidence, rigidity)
+├── layout.ts          # 2D layout algorithms
+├── ThreeJSGraph.tsx   # 3D visualization component
+├── threeUtils.ts      # Three.js helpers (geometry, intersections)
+├── MatrixTable.tsx    # Matrix display component
+└── Timeline.tsx       # Animation timeline component
+```
+
+### Adding New Features
+
+1. **New graph family**: Add to `graphUtils.ts` following existing pattern
+2. **New matrix type**: Add to `matrixUtils.ts` with proper typing
+3. **New 3D visualization**: Add helper to `threeUtils.ts`, use in `ThreeJSGraph.tsx`
+4. **New UI component**: Create in `exploration/` directory, import in `index.tsx`
+
+---
+
+## Mathematical Accuracy
+
+### Rigidity Matrix
+
+For edge e = {u, v} and vertex w with position p(w) = (x₁, x₂, x₃):
+
+```
+R[e, (w,1)] = x_u1 - x_v1  if w = u
+            = x_v1 - x_u1  if w = v
+            = 0            otherwise
+```
+
+The framework is infinitesimally rigid iff:
+```
+rank(R) = d|V| - d(d+1)/2
+```
+
+### Sphere Intersection
+
+Two spheres S₁(c₁, r₁) and S₂(c₂, r₂) intersect in:
+- Nothing if |c₁ - c₂| > r₁ + r₂ or |c₁ - c₂| < |r₁ - r₂|
+- A single point if |c₁ - c₂| = r₁ + r₂ (external tangent)
+- A circle with center and radius computed as in `threeUtils.ts`
+
+### Coordinate Assignment
+
+Initial coordinates should place vertices in "generic position" to avoid:
+- Collinear points when not required
+- Special symmetric positions that hide degrees of freedom
+- Degenerate configurations
+
+---
+
+## UI/UX Guidelines
+
+### Visual Design Principles
+
+1. **Academic yet modern**: Clean, readable, with mathematical precision
+2. **Information density**: Show matrices, coordinates, and visualizations together
+3. **Interactivity**: Orbit controls, hover info, playback controls
+4. **Clarity over decoration**: Visualization serves understanding, not aesthetics alone
+
+### Color Conventions
+
+| Element | Color | Purpose |
+|---------|-------|---------|
+| Nodes | Distinct per node (blue, red, green) | Node identification |
+| Edges | Varies (purple, orange, grey) | Edge distinction |
+| Spheres | Light blue, wireframe | Constraint visualization |
+| Intersection circles | Green, semi-transparent | Constraint intersection |
+| Intersection points | Red | Exact constraint solutions |
+| Axes | RGB (X=red, Y=green, Z=blue) | Standard 3D convention |
+| Background | Light grey (#f0f0f0) | Neutral, non-distracting |
+
+### Responsive Considerations
+
+- Canvas sizes are currently fixed (800×600) for mathematical precision
+- Consider flexible layouts for future accessibility
+- Ensure matrix tables scroll gracefully for large graphs
+
+---
+
+## Performance Considerations
+
+### Three.js Optimization
+
+```typescript
+// ✅ Reuse geometries and materials when possible
+const sharedMaterial = new THREE.MeshBasicMaterial({ color: 0x8888ff });
+
+// ✅ Dispose of old geometries before replacing
+sphere.geometry.dispose();
+sphere.geometry = new THREE.SphereGeometry(newRadius, 32, 32);
+
+// ✅ Use BufferGeometry for dynamic updates
+geometry.attributes.position.needsUpdate = true;
+
+// ✅ Limit raycasting to relevant objects
+raycaster.intersectObjects(nodeMeshes);  // Not scene.children
+```
+
+### Reactivity Optimization
+
+```typescript
+// ✅ Use createMemo for expensive computations
+const matrix = createMemo(() => computeRigidityMatrix(graph, coordinates()));
+
+// ✅ Batch updates where possible
+batch(() => {
+  setX(newX);
+  setY(newY);
+});
+```
+
+---
+
+## Testing Approach
+
+### Visual Testing
+
+Since this is a visualization project, testing is primarily visual:
+1. Verify sphere intersections match expected geometry
+2. Confirm animation preserves edge lengths
+3. Check matrix values against manual calculations
+
+### Mathematical Verification
+
+For new algorithms, verify against known results:
+- K₃ should have rank 3 rigidity matrix in ℝ² (3 edges, 6 coords, 3 trivial motions)
+- K₄ should be rigid in ℝ³ (6 edges = 3×4 - 6 trivial motions)
+
+---
+
+## Common Tasks
+
+### Add a New Graph Type
+
+```typescript
+// In graphUtils.ts
+export const createK4Graph = (): Graph<NodeAttributes> => {
+  const graph = new Graph<NodeAttributes>();
+  
+  // Add nodes
+  graph.addNode("1", { label: "Node 1", size: 10, color: "blue" });
+  graph.addNode("2", { label: "Node 2", size: 10, color: "red" });
+  graph.addNode("3", { label: "Node 3", size: 10, color: "green" });
+  graph.addNode("4", { label: "Node 4", size: 10, color: "purple" });
+  
+  // Add all edges for complete graph
+  graph.addEdge("1", "2", { size: 2, color: "gray" });
+  graph.addEdge("1", "3", { size: 2, color: "gray" });
+  graph.addEdge("1", "4", { size: 2, color: "gray" });
+  graph.addEdge("2", "3", { size: 2, color: "gray" });
+  graph.addEdge("2", "4", { size: 2, color: "gray" });
+  graph.addEdge("3", "4", { size: 2, color: "gray" });
+  
+  applyLayout(graph);
+  assignIndependentCoordinates(graph);
+  
+  return graph;
+};
+```
+
+### Add a New Matrix Display
+
+```typescript
+// In matrixUtils.ts
+export const createRigidityMatrix = (
+  graph: Graph,
+  coordinates: { [key: string]: [number, number, number] }
+) => {
+  // Rigidity matrix: |E| rows × d|V| columns
+  // Each row contains the constraint for one edge
+  const nodes = graph.nodes();
+  const edges = graph.edges();
+  const d = 3; // dimension
+  
+  const matrix = Array(edges.length)
+    .fill(null)
+    .map(() => Array(nodes.length * d).fill(0));
+  
+  // Fill in the rigidity constraints
+  // ... implementation
+  
+  return { matrix, rowLabels: edges, colLabels: /* ... */ };
+};
+```
+
+### Add Constraint-Preserving Motion
+
+For true linkage motion, use iterative constraint projection:
+
+```typescript
+// Project positions to satisfy edge length constraints
+function projectToConstraints(
+  positions: THREE.Vector3[],
+  edges: [number, number][],
+  targetLengths: number[],
+  iterations: number = 10
+) {
+  for (let iter = 0; iter < iterations; iter++) {
+    for (let i = 0; i < edges.length; i++) {
+      const [a, b] = edges[i];
+      const delta = positions[b].clone().sub(positions[a]);
+      const currentLength = delta.length();
+      const correction = (currentLength - targetLengths[i]) / currentLength;
+      
+      delta.multiplyScalar(correction * 0.5);
+      positions[a].add(delta);
+      positions[b].sub(delta);
+    }
+  }
+}
+```
+
+---
+
+## Future Directions
+
+### Near-term Priorities
+
+1. **Rigidity matrix visualization**: Compute and display R, show rank
+2. **DOF calculation**: Count internal degrees of freedom
+3. **Constraint-preserving motion**: True linkage kinematics
+4. **Graph editor**: Interactive graph construction
+
+### Research Questions to Explore
+
+1. What is the complexity of computing minimal folding dimension?
+2. How do matroid operations (deletion, contraction) affect foldability?
+3. Can we characterize graphs by their folding trajectories?
+4. What role does stress play in determining folding paths?
+
+---
+
+## Glossary
+
+| Term | Definition |
+|------|------------|
+| **Framework** | Graph G with position map p: V → ℝᵈ |
+| **Linkage** | Framework with fixed edge lengths |
+| **Configuration space** | Set of all valid positions for a linkage |
+| **Rigidity matrix** | Jacobian of edge length constraints |
+| **Generic position** | Position avoiding special algebraic relations |
+| **Trivial motion** | Rigid motion (rotation + translation) |
+| **Internal DOF** | dim(config space) - dim(trivial motions) |
+| **Laman graph** | Minimally rigid graph in 2D |
+| **Matroid** | Set system abstracting linear independence |
