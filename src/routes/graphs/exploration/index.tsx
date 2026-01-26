@@ -8,6 +8,7 @@ import {
   computeTrivialDOF,
   computeInternalDOF,
 } from "./matrixUtils";
+import { analyzeDimensionFolding, getDimensionDisplayString, DimensionAnalysis } from "./dimensionFolding";
 import MatrixTable from "./MatrixTable";
 import ThreeJSGraph from "./ThreeJSGraph";
 import { GRAPH_REGISTRY, FrameworkGraph, GraphInfo } from "./graphUtils";
@@ -15,6 +16,7 @@ import GraphSelector from "./GraphSelector";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "~/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Badge } from "~/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 
 const CANVAS_WIDTH = 600;
 const CANVAS_HEIGHT = 450;
@@ -267,6 +269,15 @@ export default function GraphPage() {
     return { rank, expectedRank, internalDOF, isRigid };
   });
 
+  // Dimension folding analysis (reactive based on coordinates)
+  const dimensionInfo = createMemo<DimensionAnalysis | null>(() => {
+    const coords = coordinates();
+    const g = graph();
+    if (Object.keys(coords).length === 0) return null;
+
+    return analyzeDimensionFolding(g, coords);
+  });
+
   // Render 2D canvas when graph or canvas changes
   createEffect(() => {
     const c = canvas();
@@ -309,6 +320,26 @@ export default function GraphPage() {
                   </Badge>
                 </Show>
               </>
+            )}
+          </Show>
+          <Show when={dimensionInfo()}>
+            {(dimInfo) => (
+              <Tooltip>
+                <TooltipTrigger>
+                  <Badge 
+                    variant={dimInfo().canFold ? "secondary" : "outline"}
+                    class={dimInfo().canFold ? "cursor-help" : "cursor-help"}
+                  >
+                    {dimInfo().canFold 
+                      ? `${dimInfo().currentDimension}D → ${dimInfo().minimalDimension}D`
+                      : `${dimInfo().currentDimension}D`
+                    }
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p class="max-w-xs text-sm">{dimInfo().explanation}</p>
+                </TooltipContent>
+              </Tooltip>
             )}
           </Show>
         </div>

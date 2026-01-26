@@ -173,9 +173,9 @@
 
 ### 7.1 Folding Analysis
 
-- [ ] Implement `canFoldToDimension(graph, positions, targetDim)` check
-- [ ] Implement `findMinimalDimension(graph)` algorithm
-- [ ] Add dimension indicator to UI
+- [x] Implement `canFoldToDimension(graph, positions, targetDim)` check
+- [x] Implement `findMinimalDimension(graph)` algorithm (as `computeMinimalDimension`)
+- [x] Add dimension indicator to UI (with tooltip showing explanation)
 
 ### 7.2 Folding Animation
 
@@ -302,9 +302,9 @@
 
 ### 13.1 Type Safety
 
-- [ ] Remove `@ts-expect-error` in `graphUtils.ts` (fix types properly)
+- [x] Remove `@ts-expect-error` in `graphUtils.ts` (fix types properly)
 - [ ] Add strict null checks
-- [ ] Create proper interface for graph node/edge attributes
+- [x] Create proper interface for graph node/edge attributes (NodeAttributes, EdgeAttributes, FrameworkGraph)
 
 ### 13.2 Refactoring
 
@@ -326,7 +326,8 @@
 - [ ] Timeline scrubbing position indicator slightly misaligned
 - [ ] Intersection circles sometimes flicker during rapid animation
 - [ ] Memory leak: sphere geometries not disposed on graph change
-- [ ] 2D canvas doesn't update when graph changes (requires refresh)
+- [x] 2D canvas doesn't update when graph changes (fixed with createEffect)
+- [ ] Race condition: rigidity/dimension badges not updating on graph switch (coordinates timing issue)
 
 ---
 
