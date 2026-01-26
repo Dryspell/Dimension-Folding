@@ -239,7 +239,8 @@ The ultimate aim of this project is to answer the **dimension folding problem**:
 | Undo/redo for editor operations | 🔲 |
 | Shareable configuration URLs | 🔲 |
 | Export animations (GIF, video) | 🔲 |
-| Documentation and tutorials | 🔲 |
+| Mathematical theory documentation (MATH.md) | ✅ |
+| In-app tutorials | 🔲 |
 | Unit tests for mathematical functions | 🔲 |
 
 ---
@@ -247,6 +248,8 @@ The ultimate aim of this project is to answer the **dimension folding problem**:
 ## Current Priority: Phase 7 - Configuration Space Exploration
 
 Phases 3-5 have substantial progress. The next frontier is **understanding and visualizing the configuration space** to find dimension-folding paths.
+
+> **Mathematical Foundation**: See [MATH.md](./MATH.md) for the rigorous theory of configuration spaces, the tangency-collinearity theorem, and fiber bundle structure. This provides the theoretical basis for visualization design.
 
 ### Recommended Approach
 

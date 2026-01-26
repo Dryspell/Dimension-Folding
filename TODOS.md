@@ -273,6 +273,17 @@
 - [ ] Glossary of terms (already in README, link from app)
 - [ ] Video walkthrough
 
+### 11.3 Mathematical Theory Documentation
+
+- [x] Create `MATH.md` with rigorous configuration space theory
+- [x] Document tangency-collinearity theorem
+- [x] Document fiber bundle structure of P₃ configuration space
+- [x] Document dimension stratification (C₁ ⊂ C₂ ⊂ C₃)
+- [x] Add visualization implications section
+- [x] List open research questions
+- [x] Add references to key papers (Connelly, Kapovich-Millson, Farber)
+- [ ] Add worked examples with explicit calculations
+
 ---
 
 ## 12. Testing
@@ -387,13 +398,15 @@ Algorithms for finding the "special points" that represent minimal dimensions.
 
 ### 15.6 Theoretical Display
 
-Help users understand the mathematical structure.
+Help users understand the mathematical structure. See [MATH.md](./MATH.md) for the rigorous theory.
 
-- [ ] Show configuration space as: C = {p : ||p(u) - p(v)|| = L(e) for all edges e}
-- [ ] Display as intersection of level sets of distance functions
-- [ ] Show product decomposition when applicable
-- [ ] Explain fiber bundle structure over pinned configurations
-- [ ] Link to relevant mathematical references (Connelly, Whiteley, etc.)
+- [x] Document configuration space as: C = {p : ||p(u) - p(v)|| = L(e) for all edges e} (in MATH.md)
+- [x] Explain as intersection of quadric hypersurfaces (in MATH.md)
+- [x] Document fiber bundle structure of P₃ (in MATH.md)
+- [x] Document tangency-collinearity theorem (in MATH.md)
+- [x] Link to relevant mathematical references (in MATH.md)
+- [ ] Display theory summary in-app (link to MATH.md)
+- [ ] Show interactive visualizations of concepts from MATH.md
 
 ---
 

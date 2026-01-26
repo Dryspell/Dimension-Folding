@@ -136,6 +136,8 @@ For a graph G in ℝ²:
 - **Maxwell's condition**: |E| ≤ 2|V| - 3 (necessary)
 - **Laman's condition**: ∀H ⊆ G, |E(H)| ≤ 2|V(H)| - 3 (sufficient in 2D)
 
+> **For deeper theory**: See [MATH.md](./MATH.md) for configuration space structure, the tangency-collinearity theorem, and the fiber bundle perspective.
+
 ---
 
 ## Current Status
@@ -163,7 +165,8 @@ Implementing **constraint-preserving motion**—animations that maintain edge le
 
 ---
 
-**For detailed planning, see:**
+**For more details, see:**
+- [MATH.md](./MATH.md) — Rigorous mathematical foundations (configuration space theory, tangency-collinearity theorem)
 - [ROADMAP.md](./ROADMAP.md) — Strategic development phases and milestones
 - [TODOS.md](./TODOS.md) — Granular task list with priorities
 
