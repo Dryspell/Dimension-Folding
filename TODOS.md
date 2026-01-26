@@ -97,22 +97,22 @@
 
 ### 4.1 Complete Graphs
 
-- [ ] Implement `createK4Graph()` - complete graph on 4 vertices
-- [ ] Implement `createKnGraph(n)` - generator for complete graphs
-- [ ] Ensure generic position for all node placements
+- [x] Implement `createK4Graph()` - complete graph on 4 vertices
+- [x] Implement `createKnGraph(n)` - generator for complete graphs
+- [x] Ensure generic position for all node placements
 
 ### 4.2 Bipartite Graphs
 
-- [ ] Implement `createK23Graph()` - complete bipartite K_{2,3}
-- [ ] Implement `createKmnGraph(m, n)` - generator
+- [x] Implement `createK23Graph()` - complete bipartite K_{2,3}
+- [x] Implement `createKmnGraph(m, n)` - generator
 
 ### 4.3 Special Graphs
 
-- [ ] Implement cycle graphs `createCycleGraph(n)` - Cₙ
-- [ ] Implement path graphs `createPathGraph(n)` - Pₙ
-- [ ] Implement wheel graphs `createWheelGraph(n)`
-- [ ] Implement cube graph (Q₃)
-- [ ] Implement octahedron graph
+- [x] Implement cycle graphs `createCycleGraph(n)` - Cₙ
+- [x] Implement path graphs `createPathGraph(n)` - Pₙ
+- [x] Implement wheel graphs `createWheelGraph(n)`
+- [x] Implement cube graph (Q₃)
+- [x] Implement octahedron graph
 
 ### 4.4 Platonic Solids
 
@@ -132,11 +132,11 @@
 
 ## 5. Graph Selector UI
 
-- [ ] Create `<GraphSelector>` component
-- [ ] Dropdown or tab-based graph selection
+- [x] Create `<GraphSelector>` component
+- [x] Dropdown or tab-based graph selection
 - [ ] Preview thumbnails for each graph type
-- [ ] Show graph properties (|V|, |E|, expected rigidity)
-- [ ] Hot-swap graph without page reload
+- [x] Show graph properties (|V|, |E|, expected rigidity)
+- [x] Hot-swap graph without page reload
 - [ ] Remember last selected graph in localStorage
 
 ---
@@ -239,7 +239,7 @@
 
 ### 9.4 Playback Controls
 
-- [ ] Reset button (return to initial configuration)
+- [x] Reset button (return to initial configuration)
 - [ ] Step forward/backward (single transformation)
 - [ ] Loop playback option
 - [ ] Keyframe markers on timeline
@@ -347,11 +347,11 @@
 
 ## Quick Wins (< 1 hour each)
 
-- [ ] Add reset button to return to initial positions
+- [x] Add reset button to return to initial positions
 - [x] Display edge count and vertex count in header
 - [ ] Add link to README mathematical background from app
 - [ ] Show transformation name during playback
-- [ ] Add keyboard shortcut: Space for play/pause
+- [x] Add keyboard shortcut: Space for play/pause (also R for reset, arrows for direction)
 
 ---
 

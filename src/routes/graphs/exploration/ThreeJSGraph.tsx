@@ -293,6 +293,51 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
     updateNodePositions();
   };
 
+  /**
+   * Reset to initial configuration (transformation index 0, factor 0).
+   */
+  const handleReset = () => {
+    setIsPlaying(false);
+    setCurrentTransformationIndex(0);
+    setInterpolationFactor(0);
+    updateNodePositions();
+  };
+
+  /**
+   * Handle keyboard shortcuts.
+   */
+  const handleKeyDown = (e: KeyboardEvent) => {
+    // Only handle if not in an input field
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      return;
+    }
+
+    switch (e.code) {
+      case "Space":
+        e.preventDefault();
+        handlePlayPause();
+        break;
+      case "KeyR":
+        e.preventDefault();
+        handleReset();
+        break;
+      case "ArrowLeft":
+        e.preventDefault();
+        setPlaybackDirection(-1);
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        setPlaybackDirection(1);
+        break;
+    }
+  };
+
+  // Add keyboard listener
+  if (typeof window !== "undefined") {
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
+  }
+
   return (
     <Card class="relative overflow-hidden">
       <div
@@ -330,10 +375,32 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
       {/* Playback controls */}
       <div class="border-t p-4">
         <div class="flex items-center gap-3 mb-3">
+          {/* Reset button */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleReset}
+            title="Reset to initial position (R)"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              class="size-4"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z"
+                clip-rule="evenodd"
+              />
+            </svg>
+          </Button>
+          {/* Play/Pause button */}
           <Button
             size="sm"
             variant={isPlaying() ? "secondary" : "default"}
             onClick={handlePlayPause}
+            title="Play/Pause (Space)"
           >
             {isPlaying() ? (
               <svg

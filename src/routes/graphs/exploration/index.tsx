@@ -1,4 +1,4 @@
-import { Accessor, createMemo, createSignal, onMount } from "solid-js";
+import { Accessor, createMemo, createSignal, createEffect, Show } from "solid-js";
 import { Title } from "@solidjs/meta";
 import {
   createAdjacencyMatrix,
@@ -10,7 +10,8 @@ import {
 } from "./matrixUtils";
 import MatrixTable from "./MatrixTable";
 import ThreeJSGraph from "./ThreeJSGraph";
-import { createK3Graph, createVGraph } from "./graphUtils";
+import { GRAPH_REGISTRY, FrameworkGraph, GraphInfo } from "./graphUtils";
+import GraphSelector from "./GraphSelector";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "~/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Badge } from "~/components/ui/badge";
@@ -57,7 +58,7 @@ interface RigidityAnalysis {
 }
 
 function RigidityPanel(props: {
-  graph: ReturnType<typeof createVGraph>;
+  graph: Accessor<FrameworkGraph>;
   coordinates: Accessor<{ [key: string]: [number, number, number] }>;
   dimension?: 2 | 3;
 }) {
@@ -65,17 +66,18 @@ function RigidityPanel(props: {
 
   const analysis = createMemo<RigidityAnalysis | null>(() => {
     const coords = props.coordinates();
+    const graph = props.graph();
     if (Object.keys(coords).length === 0) return null;
 
     const { matrix, rowLabels, colLabels } = createRigidityMatrix(
-      props.graph,
+      graph,
       coords,
       dimension
     );
 
     const rank = computeMatrixRank(matrix);
-    const vertices = props.graph.order;
-    const edges = props.graph.size;
+    const vertices = graph.order;
+    const edges = graph.size;
     const trivialDOF = computeTrivialDOF(dimension);
     const expectedRank = dimension * vertices - trivialDOF;
     const internalDOF = computeInternalDOF(rank, vertices, dimension);
@@ -98,178 +100,189 @@ function RigidityPanel(props: {
 
   return (
     <div class="space-y-4">
-      {analysis() ? (
-        <>
-          {/* Rigidity Status */}
-          <div class="flex flex-wrap items-center gap-3">
-            <Badge variant={analysis()!.isRigid ? "default" : "secondary"}>
-              {analysis()!.isRigid ? "Rigid" : "Flexible"}
-            </Badge>
-            <span class="text-sm text-muted-foreground">
-              in ℝ<sup>{analysis()!.dimension}</sup>
-            </span>
-          </div>
-
-          {/* Statistics */}
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div class="rounded-lg border p-3">
-              <div class="text-xs text-muted-foreground uppercase tracking-wide">Rank</div>
-              <div class="text-2xl font-bold">{analysis()!.rank}</div>
-              <div class="text-xs text-muted-foreground">
-                of {analysis()!.expectedRank} expected
-              </div>
-            </div>
-            <div class="rounded-lg border p-3">
-              <div class="text-xs text-muted-foreground uppercase tracking-wide">Internal DOF</div>
-              <div class="text-2xl font-bold">{analysis()!.internalDOF}</div>
-              <div class="text-xs text-muted-foreground">
-                flex modes
-              </div>
-            </div>
-            <div class="rounded-lg border p-3">
-              <div class="text-xs text-muted-foreground uppercase tracking-wide">Trivial DOF</div>
-              <div class="text-2xl font-bold">{analysis()!.trivialDOF}</div>
-              <div class="text-xs text-muted-foreground">
-                rigid motions
-              </div>
-            </div>
-            <div class="rounded-lg border p-3">
-              <div class="text-xs text-muted-foreground uppercase tracking-wide">Matrix Size</div>
-              <div class="text-2xl font-bold">{analysis()!.edges}×{analysis()!.dimension * analysis()!.vertices}</div>
-              <div class="text-xs text-muted-foreground">
-                edges × d·vertices
-              </div>
-            </div>
-          </div>
-
-          {/* Rigidity Matrix */}
-          <div class="overflow-x-auto">
-            <MatrixTable
-              title="Rigidity Matrix R"
-              rowLabels={analysis()!.rowLabels}
-              colLabels={analysis()!.colLabels}
-              matrix={analysis()!.matrix}
-              rounding={3}
-            />
-          </div>
-
-          <p class="text-sm text-muted-foreground">
-            The rigidity matrix R is the Jacobian of edge length constraints.
-            Its null space contains infinitesimal motions preserving edge lengths.
-            {analysis()!.isRigid
-              ? " This framework is rigid—only trivial motions (translations/rotations) exist."
-              : ` This framework has ${analysis()!.internalDOF} internal degree(s) of freedom.`}
-          </p>
-        </>
-      ) : (
+      <Show when={analysis()} fallback={
         <p class="text-sm text-muted-foreground">
           Waiting for coordinate data...
         </p>
-      )}
+      }>
+        {(data) => (
+          <>
+            {/* Rigidity Status */}
+            <div class="flex flex-wrap items-center gap-3">
+              <Badge variant={data().isRigid ? "default" : "secondary"}>
+                {data().isRigid ? "Rigid" : "Flexible"}
+              </Badge>
+              <span class="text-sm text-muted-foreground">
+                in ℝ<sup>{data().dimension}</sup>
+              </span>
+            </div>
+
+            {/* Statistics */}
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div class="rounded-lg border p-3">
+                <div class="text-xs text-muted-foreground uppercase tracking-wide">Rank</div>
+                <div class="text-2xl font-bold">{data().rank}</div>
+                <div class="text-xs text-muted-foreground">
+                  of {data().expectedRank} expected
+                </div>
+              </div>
+              <div class="rounded-lg border p-3">
+                <div class="text-xs text-muted-foreground uppercase tracking-wide">Internal DOF</div>
+                <div class="text-2xl font-bold">{data().internalDOF}</div>
+                <div class="text-xs text-muted-foreground">
+                  flex modes
+                </div>
+              </div>
+              <div class="rounded-lg border p-3">
+                <div class="text-xs text-muted-foreground uppercase tracking-wide">Trivial DOF</div>
+                <div class="text-2xl font-bold">{data().trivialDOF}</div>
+                <div class="text-xs text-muted-foreground">
+                  rigid motions
+                </div>
+              </div>
+              <div class="rounded-lg border p-3">
+                <div class="text-xs text-muted-foreground uppercase tracking-wide">Matrix Size</div>
+                <div class="text-2xl font-bold">{data().edges}×{data().dimension * data().vertices}</div>
+                <div class="text-xs text-muted-foreground">
+                  edges × d·vertices
+                </div>
+              </div>
+            </div>
+
+            {/* Rigidity Matrix */}
+            <div class="overflow-x-auto">
+              <MatrixTable
+                title="Rigidity Matrix R"
+                rowLabels={data().rowLabels}
+                colLabels={data().colLabels}
+                matrix={data().matrix}
+                rounding={3}
+              />
+            </div>
+
+            <p class="text-sm text-muted-foreground">
+              The rigidity matrix R is the Jacobian of edge length constraints.
+              Its null space contains infinitesimal motions preserving edge lengths.
+              {data().isRigid
+                ? " This framework is rigid—only trivial motions (translations/rotations) exist."
+                : ` This framework has ${data().internalDOF} internal degree(s) of freedom.`}
+            </p>
+          </>
+        )}
+      </Show>
     </div>
   );
 }
 
+/**
+ * Render 2D graph layout on canvas.
+ */
+function render2DGraph(
+  canvas: HTMLCanvasElement,
+  graph: FrameworkGraph,
+  width: number,
+  height: number
+) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  // Clear canvas with background
+  ctx.fillStyle = "#fafafa";
+  ctx.fillRect(0, 0, width, height);
+
+  // Render edges
+  graph.forEachEdge((_edge, attr, source, target) => {
+    const sourceAttr = graph.getNodeAttributes(source);
+    const targetAttr = graph.getNodeAttributes(target);
+    ctx.strokeStyle = attr.color;
+    ctx.lineWidth = attr.size || 2;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(sourceAttr.x * width, sourceAttr.y * height);
+    ctx.lineTo(targetAttr.x * width, targetAttr.y * height);
+    ctx.stroke();
+  });
+
+  // Render nodes and labels
+  graph.forEachNode((_node, attr) => {
+    // Draw node shadow
+    ctx.beginPath();
+    ctx.arc(attr.x * width + 2, attr.y * height + 2, attr.size, 0, 2 * Math.PI);
+    ctx.fillStyle = "rgba(0,0,0,0.1)";
+    ctx.fill();
+
+    // Draw node
+    ctx.beginPath();
+    ctx.arc(attr.x * width, attr.y * height, attr.size, 0, 2 * Math.PI);
+    ctx.fillStyle = attr.color;
+    ctx.fill();
+
+    // Render labels with coordinates
+    const coordinatesText = `(${attr.coordinates.join(", ")})`;
+    ctx.fillStyle = "#374151";
+    ctx.font = "500 12px Inter, sans-serif";
+    ctx.fillText(attr.label, attr.x * width + attr.size + 8, attr.y * height - 4);
+    ctx.font = "400 11px monospace";
+    ctx.fillStyle = "#6b7280";
+    ctx.fillText(coordinatesText, attr.x * width + attr.size + 8, attr.y * height + 10);
+  });
+}
+
 export default function GraphPage() {
+  // Default graph
+  const defaultGraphEntry = GRAPH_REGISTRY[0]; // V-Graph
+  
+  // Reactive state
+  const [graph, setGraph] = createSignal<FrameworkGraph>(defaultGraphEntry.create());
+  const [graphInfo, setGraphInfo] = createSignal<GraphInfo>(defaultGraphEntry.info);
   const [canvas, setCanvas] = createSignal<HTMLCanvasElement | undefined>(undefined);
-  const graph = createVGraph();
-  const { matrix: adjacencyMatrix, labels: adjacencyLabels } = createAdjacencyMatrix(graph);
-  const {
-    matrix: incidenceMatrix,
-    rowLabels: incidenceRowLabels,
-    colLabels: incidenceColLabels,
-  } = createIncidenceMatrix(graph);
   const [coordinates, setCoordinates] = createSignal<{
     [key: string]: [number, number, number];
   }>({});
+  const [graphKey, setGraphKey] = createSignal(0); // Force re-mount of ThreeJSGraph
 
-  // Graph statistics
-  const vertexCount = graph.order;
-  const edgeCount = graph.size;
+  // Derived values
+  const vertexCount = createMemo(() => graph().order);
+  const edgeCount = createMemo(() => graph().size);
+
+  // Adjacency matrix (reactive)
+  const adjacencyData = createMemo(() => createAdjacencyMatrix(graph()));
+
+  // Incidence matrix (reactive)
+  const incidenceData = createMemo(() => createIncidenceMatrix(graph()));
 
   // Rigidity analysis (reactive based on coordinates)
   const rigidityInfo = createMemo(() => {
     const coords = coordinates();
+    const g = graph();
     if (Object.keys(coords).length === 0) return null;
 
-    const { matrix } = createRigidityMatrix(graph, coords, 3);
+    const { matrix } = createRigidityMatrix(g, coords, 3);
     const rank = computeMatrixRank(matrix);
     const trivialDOF = computeTrivialDOF(3);
-    const expectedRank = 3 * vertexCount - trivialDOF;
-    const internalDOF = computeInternalDOF(rank, vertexCount, 3);
+    const expectedRank = 3 * g.order - trivialDOF;
+    const internalDOF = computeInternalDOF(rank, g.order, 3);
     const isRigid = internalDOF === 0;
 
     return { rank, expectedRank, internalDOF, isRigid };
   });
 
-  onMount(() => {
-    const canvasContext = canvas()?.getContext("2d");
-    if (!canvasContext) {
-      console.error("Failed to get 2d context from canvas");
-      return;
+  // Render 2D canvas when graph or canvas changes
+  createEffect(() => {
+    const c = canvas();
+    const g = graph();
+    if (c) {
+      render2DGraph(c, g, CANVAS_WIDTH, CANVAS_HEIGHT);
     }
-
-    // Clear canvas with background
-    canvasContext.fillStyle = "#fafafa";
-    canvasContext.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    // Render edges
-    graph.forEachEdge((edge, attr, source, target) => {
-      const sourceAttr = graph.getNodeAttributes(source);
-      const targetAttr = graph.getNodeAttributes(target);
-      canvasContext.strokeStyle = attr.color;
-      canvasContext.lineWidth = attr.size || 2;
-      canvasContext.lineCap = "round";
-      canvasContext.beginPath();
-      canvasContext.moveTo(sourceAttr.x * CANVAS_WIDTH, sourceAttr.y * CANVAS_HEIGHT);
-      canvasContext.lineTo(targetAttr.x * CANVAS_WIDTH, targetAttr.y * CANVAS_HEIGHT);
-      canvasContext.stroke();
-    });
-
-    // Render nodes and labels
-    graph.forEachNode((node, attr) => {
-      // Draw node shadow
-      canvasContext.beginPath();
-      canvasContext.arc(
-        attr.x * CANVAS_WIDTH + 2,
-        attr.y * CANVAS_HEIGHT + 2,
-        attr.size,
-        0,
-        2 * Math.PI
-      );
-      canvasContext.fillStyle = "rgba(0,0,0,0.1)";
-      canvasContext.fill();
-
-      // Draw node
-      canvasContext.beginPath();
-      canvasContext.arc(
-        attr.x * CANVAS_WIDTH,
-        attr.y * CANVAS_HEIGHT,
-        attr.size,
-        0,
-        2 * Math.PI
-      );
-      canvasContext.fillStyle = attr.color;
-      canvasContext.fill();
-
-      // Render labels with coordinates
-      const coordinatesText = `(${attr.coordinates.join(", ")})`;
-      canvasContext.fillStyle = "#374151";
-      canvasContext.font = "500 12px Inter, sans-serif";
-      canvasContext.fillText(
-        `${attr.label}`,
-        attr.x * CANVAS_WIDTH + attr.size + 8,
-        attr.y * CANVAS_HEIGHT - 4
-      );
-      canvasContext.font = "400 11px monospace";
-      canvasContext.fillStyle = "#6b7280";
-      canvasContext.fillText(
-        coordinatesText,
-        attr.x * CANVAS_WIDTH + attr.size + 8,
-        attr.y * CANVAS_HEIGHT + 10
-      );
-    });
   });
+
+  // Handle graph selection
+  const handleGraphChange = (newGraph: FrameworkGraph, info: GraphInfo) => {
+    setGraph(newGraph);
+    setGraphInfo(info);
+    setCoordinates({}); // Reset coordinates
+    setGraphKey((k) => k + 1); // Force ThreeJSGraph remount
+  };
 
   return (
     <main class="container py-6">
@@ -277,22 +290,27 @@ export default function GraphPage() {
 
       {/* Page header */}
       <div class="mb-6">
-        <div class="flex items-center gap-3 mb-2">
+        <div class="flex flex-wrap items-center gap-3 mb-2">
           <h1 class="text-2xl font-bold tracking-tight">Graph Exploration</h1>
-          <Badge variant="secondary">K₁,₂ (V-Graph)</Badge>
-          <Badge variant="outline">{vertexCount}V, {edgeCount}E</Badge>
-          {rigidityInfo() && (
-            <>
-              <Badge variant={rigidityInfo()!.isRigid ? "default" : "secondary"}>
-                {rigidityInfo()!.isRigid ? "Rigid" : "Flexible"}
-              </Badge>
-              {!rigidityInfo()!.isRigid && (
-                <Badge variant="outline">
-                  {rigidityInfo()!.internalDOF} DOF
+          <GraphSelector
+            currentGraphId={graphInfo().id}
+            onGraphChange={handleGraphChange}
+          />
+          <Badge variant="outline">{vertexCount()}V, {edgeCount()}E</Badge>
+          <Show when={rigidityInfo()}>
+            {(info) => (
+              <>
+                <Badge variant={info().isRigid ? "default" : "secondary"}>
+                  {info().isRigid ? "Rigid" : "Flexible"}
                 </Badge>
-              )}
-            </>
-          )}
+                <Show when={!info().isRigid}>
+                  <Badge variant="outline">
+                    {info().internalDOF} DOF
+                  </Badge>
+                </Show>
+              </>
+            )}
+          </Show>
         </div>
         <p class="text-muted-foreground">
           Visualize graphs as mechanical linkages in 3D space. Explore constraints
@@ -320,13 +338,17 @@ export default function GraphPage() {
           </CardContent>
         </Card>
 
-        {/* 3D Linkage view */}
-        <ThreeJSGraph
-          graph={graph}
-          width={CANVAS_WIDTH}
-          height={CANVAS_HEIGHT}
-          setCoordinates={setCoordinates}
-        />
+        {/* 3D Linkage view - key forces remount on graph change */}
+        <Show when={graph()} keyed>
+          {(g) => (
+            <ThreeJSGraph
+              graph={g}
+              width={CANVAS_WIDTH}
+              height={CANVAS_HEIGHT}
+              setCoordinates={setCoordinates}
+            />
+          )}
+        </Show>
       </div>
 
       {/* Matrix views with tabs */}
@@ -349,9 +371,9 @@ export default function GraphPage() {
               <div class="max-w-md">
                 <MatrixTable
                   title="Adjacency Matrix"
-                  rowLabels={adjacencyLabels}
-                  colLabels={adjacencyLabels}
-                  matrix={adjacencyMatrix}
+                  rowLabels={adjacencyData().labels}
+                  colLabels={adjacencyData().labels}
+                  matrix={adjacencyData().matrix}
                 />
               </div>
               <p class="mt-3 text-sm text-muted-foreground">
@@ -362,9 +384,9 @@ export default function GraphPage() {
               <div class="max-w-md">
                 <MatrixTable
                   title="Incidence Matrix"
-                  rowLabels={incidenceRowLabels}
-                  colLabels={incidenceColLabels}
-                  matrix={incidenceMatrix}
+                  rowLabels={incidenceData().rowLabels}
+                  colLabels={incidenceData().colLabels}
+                  matrix={incidenceData().matrix}
                 />
               </div>
               <p class="mt-3 text-sm text-muted-foreground">
