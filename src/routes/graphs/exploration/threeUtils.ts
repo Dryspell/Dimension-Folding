@@ -12,20 +12,87 @@ export function initSceneAndControls(
   height: number,
   containerRef: HTMLDivElement
 ) {
-  const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
-  camera.position.set(3, 3, 3);
+  const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 1000);
+  camera.position.set(4, 3, 4);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new THREE.WebGLRenderer({ 
+    antialias: true,
+    alpha: true,
+  });
   renderer.setSize(width, height);
-  renderer.setClearColor(new THREE.Color("#fafafa"));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // Soft neutral background - works well with colorful nodes
+  renderer.setClearColor(new THREE.Color("#f8fafc"), 1);
   containerRef.appendChild(renderer.domElement);
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
-  controls.dampingFactor = 0.25;
+  controls.dampingFactor = 0.08;
   controls.enableZoom = true;
+  controls.minDistance = 2;
+  controls.maxDistance = 15;
+  controls.autoRotate = false;
+  controls.autoRotateSpeed = 0.5;
 
   return { renderer, controls, camera };
+}
+
+/**
+ * Create a subtle gradient background plane.
+ */
+export function createGradientBackground(scene: THREE.Scene) {
+  // Create a large plane behind the scene with a gradient
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+  
+  // Create radial gradient - light center, slightly darker edges
+  const gradient = ctx.createRadialGradient(256, 256, 0, 256, 256, 400);
+  gradient.addColorStop(0, '#ffffff');
+  gradient.addColorStop(0.5, '#f1f5f9');
+  gradient.addColorStop(1, '#e2e8f0');
+  
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 512, 512);
+  
+  const texture = new THREE.CanvasTexture(canvas);
+  const bgGeometry = new THREE.PlaneGeometry(100, 100);
+  const bgMaterial = new THREE.MeshBasicMaterial({ 
+    map: texture,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const bgMesh = new THREE.Mesh(bgGeometry, bgMaterial);
+  bgMesh.position.z = -20;
+  bgMesh.renderOrder = -1;
+  scene.add(bgMesh);
+  
+  return bgMesh;
+}
+
+/**
+ * Add lighting to the scene for better 3D appearance.
+ */
+export function addLighting(scene: THREE.Scene) {
+  // Soft ambient light for base illumination
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+  scene.add(ambientLight);
+  
+  // Main directional light - warm tone from upper right
+  const mainLight = new THREE.DirectionalLight(0xfff5e6, 1.0);
+  mainLight.position.set(5, 8, 5);
+  scene.add(mainLight);
+  
+  // Fill light from opposite side - cool tone
+  const fillLight = new THREE.DirectionalLight(0xe6f0ff, 0.4);
+  fillLight.position.set(-5, 3, -5);
+  scene.add(fillLight);
+  
+  // Rim light from behind for edge definition
+  const rimLight = new THREE.DirectionalLight(0xffffff, 0.3);
+  rimLight.position.set(0, -5, -8);
+  scene.add(rimLight);
 }
 
 /**
@@ -38,14 +105,18 @@ export function drawEdges(
   edges: THREE.LineSegments[]
 ) {
   graph.forEachEdge((edge, attributes, source, target) => {
-    const material = new THREE.LineBasicMaterial({
-      color: attributes.color || "gray",
-      linewidth: 2,
-    });
-    const geometry = new THREE.BufferGeometry();
-
+    // Create cylinder-based edges for better visibility
     const sourceNode = nodeMeshMap[source];
     const targetNode = nodeMeshMap[target];
+    
+    // Use LineBasicMaterial but with better styling
+    const material = new THREE.LineBasicMaterial({
+      color: attributes.color || "#64748b",
+      linewidth: 2,
+      transparent: true,
+      opacity: 0.9,
+    });
+    const geometry = new THREE.BufferGeometry();
     geometry.setFromPoints([sourceNode.position.clone(), targetNode.position.clone()]);
 
     const line = new THREE.LineSegments(geometry, material);
@@ -99,9 +170,21 @@ export function populateGraphScene(
 
   nodes.forEach((node, index) => {
     const attr = graph.getNodeAttributes(node);
-    const color = new THREE.Color(attr.color || "blue");
-    const material = new THREE.MeshBasicMaterial({ color });
-    const geometry = new THREE.SphereGeometry(0.1, 16, 16);
+    const color = new THREE.Color(attr.color || "#3b82f6");
+    
+    // Use MeshPhongMaterial for nice glossy appearance
+    const material = new THREE.MeshPhongMaterial({ 
+      color,
+      emissive: color,
+      emissiveIntensity: 0.15,
+      specular: new THREE.Color(0xffffff),
+      shininess: 100,
+      transparent: true,
+      opacity: 0.95,
+    });
+    
+    // Smooth spheres with good detail
+    const geometry = new THREE.SphereGeometry(0.14, 32, 32);
     const sphere = new THREE.Mesh(geometry, material);
 
     // Get coordinates from graph attributes
@@ -114,6 +197,7 @@ export function populateGraphScene(
       label: attr.label,
       coordinates: [position.x, position.y, position.z],
       nodeId: node,
+      color: attr.color,
     };
 
     // Store original position (immutable reference for calculations)
@@ -129,17 +213,25 @@ export function populateGraphScene(
  * Add grid helpers to the scene (XZ and YZ planes).
  */
 export function addGridHelpers(showGrid: Accessor<boolean>, scene: THREE.Scene) {
-  const gridSize = 2;
-  const gridDivisions = 10;
+  const gridSize = 3;
+  const gridDivisions = 12;
+  
+  // Subtle grid colors for light background
+  const gridColor = 0xd1d5db; // Gray-300
+  const centerColor = 0x9ca3af; // Gray-400
 
-  const xGrid = new THREE.GridHelper(gridSize, gridDivisions);
+  const xGrid = new THREE.GridHelper(gridSize, gridDivisions, centerColor, gridColor);
   xGrid.rotation.z = Math.PI / 2;
   xGrid.visible = showGrid();
+  (xGrid.material as THREE.Material).opacity = 0.5;
+  (xGrid.material as THREE.Material).transparent = true;
   scene.add(xGrid);
 
-  const yGrid = new THREE.GridHelper(gridSize, gridDivisions);
+  const yGrid = new THREE.GridHelper(gridSize, gridDivisions, centerColor, gridColor);
   yGrid.rotation.x = Math.PI / 2;
   yGrid.visible = showGrid();
+  (yGrid.material as THREE.Material).opacity = 0.5;
+  (yGrid.material as THREE.Material).transparent = true;
   scene.add(yGrid);
 
   createEffect(() => {
@@ -152,14 +244,22 @@ export function addGridHelpers(showGrid: Accessor<boolean>, scene: THREE.Scene) 
  * Add axes helper and tick marks to the scene.
  */
 export function addAxesHelper(scene: THREE.Scene) {
-  const axesHelper = new THREE.AxesHelper(2);
+  // Create custom colored axes - more subtle for light background
+  const axesHelper = new THREE.AxesHelper(2.5);
+  // Make axes semi-transparent
+  (axesHelper.material as THREE.Material).opacity = 0.6;
+  (axesHelper.material as THREE.Material).transparent = true;
   scene.add(axesHelper);
 
-  // Add tick marks along each axis
-  const tickMaterial = new THREE.MeshBasicMaterial({ color: 0x888888 });
-  const tickGeometry = new THREE.SphereGeometry(0.02, 8, 8);
+  // Add subtle tick marks along each axis
+  const tickMaterial = new THREE.MeshBasicMaterial({ 
+    color: 0x94a3b8, // Slate-400
+    transparent: true,
+    opacity: 0.6,
+  });
+  const tickGeometry = new THREE.SphereGeometry(0.015, 8, 8);
   const tickSpacing = 0.5;
-  const tickCount = 5;
+  const tickCount = 4;
 
   for (let i = -tickCount; i <= tickCount; i++) {
     if (i === 0) continue;
@@ -306,11 +406,11 @@ export function createSpheresAndIntersections(
       const neighborMesh = nodeMeshMap[neighborId];
       const radius = nodeMesh.position.distanceTo(neighborMesh.position);
 
-      const geometry = new THREE.SphereGeometry(radius, 32, 32);
+      const geometry = new THREE.SphereGeometry(radius, 48, 48);
       const material = new THREE.MeshBasicMaterial({
-        color: 0x8888ff,
+        color: 0x3b82f6, // Blue-500
         wireframe: true,
-        opacity: 0.2,
+        opacity: 0.15,
         transparent: true,
       });
       const sphere = new THREE.Mesh(geometry, material);
@@ -490,8 +590,14 @@ function createPoint(
   position: THREE.Vector3,
   intersectionPoints: THREE.Mesh[]
 ): THREE.Mesh {
-  const geometry = new THREE.SphereGeometry(0.05, 16, 16);
-  const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+  // Bright rose/red for intersection points - stands out on light background
+  const geometry = new THREE.SphereGeometry(0.06, 24, 24);
+  const material = new THREE.MeshPhongMaterial({ 
+    color: 0xf43f5e, // Rose-500
+    emissive: 0xf43f5e,
+    emissiveIntensity: 0.3,
+    shininess: 80,
+  });
   const point = new THREE.Mesh(geometry, material);
   point.position.copy(position);
   intersectionPoints.push(point);
@@ -509,10 +615,11 @@ function createCircle(
   circles: THREE.Mesh[],
   isConfigSpace: boolean = false
 ): THREE.Mesh {
-  // Config space circles are thicker and cyan; other intersections are green
-  const thickness = isConfigSpace ? 0.04 : 0.02;
-  const color = isConfigSpace ? 0x00ffff : 0x00ff00;
-  const opacity = isConfigSpace ? 0.7 : 0.5;
+  // Config space circles are thicker and more prominent
+  const thickness = isConfigSpace ? 0.035 : 0.02;
+  // Cyan for config space, emerald for other intersections
+  const color = isConfigSpace ? 0x06b6d4 : 0x10b981;
+  const opacity = isConfigSpace ? 0.8 : 0.6;
   
   const geometry = new THREE.RingGeometry(radius - thickness, radius + thickness, 64);
   const material = new THREE.MeshBasicMaterial({

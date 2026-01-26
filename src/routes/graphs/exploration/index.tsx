@@ -12,6 +12,9 @@ import { analyzeDimensionFolding, getDimensionDisplayString, DimensionAnalysis }
 import { analyzeConfigSpace, ConfigSpaceAnalysis } from "./threeUtils";
 import MatrixTable from "./MatrixTable";
 import ThreeJSGraph from "./ThreeJSGraph";
+import GraphAnalysisPanel from "./GraphAnalysisPanel";
+import FoldingMetricsPanel from "./FoldingMetricsPanel";
+import VertexDOFPanel from "./VertexDOFPanel";
 import { GRAPH_REGISTRY, FrameworkGraph, GraphInfo } from "./graphUtils";
 import GraphSelector from "./GraphSelector";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "~/components/ui/card";
@@ -19,8 +22,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Badge } from "~/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 
-const CANVAS_WIDTH = 600;
-const CANVAS_HEIGHT = 450;
+const CANVAS_WIDTH = 700;
+const CANVAS_HEIGHT = 500;
 
 function CoordinateMatrix(props: {
   coordinates: Accessor<{ [key: string]: [number, number, number] }>;
@@ -110,26 +113,36 @@ function ConfigSpacePanel(props: {
         <h4 class="font-medium mb-2">Per-Node Configuration Space</h4>
         <div class="space-y-2">
           <For each={analysis().nodeAnalysis}>
-            {(node) => (
-              <div class="rounded-lg border p-3">
-                <div class="flex items-center gap-2 mb-1">
-                  <span class="font-medium">{node.nodeLabel}</span>
-                  <Badge variant="outline" class="text-xs">
-                    degree {node.degree}
-                  </Badge>
-                  <Badge 
-                    variant={node.dimension === 1 ? "default" : "secondary"} 
-                    class="text-xs"
-                  >
-                    {node.dimension === 0 ? "point" : 
-                     node.dimension === 1 ? "circle S¹" : 
-                     node.dimension === 2 ? "sphere S²" : "ℝ³"}
-                  </Badge>
+            {(node) => {
+              const dof = 3 - node.degree; // DOF = dimension - degree
+              const isFlexible = dof > 0;
+              return (
+                <div class={`rounded-lg border p-3 ${isFlexible ? "border-green-200 bg-green-50/30" : ""}`}>
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="font-medium">{node.nodeLabel}</span>
+                    <Badge variant="outline" class="text-xs">
+                      degree {node.degree}
+                    </Badge>
+                    <Badge 
+                      variant={isFlexible ? "default" : "secondary"} 
+                      class={`text-xs ${isFlexible ? "bg-green-600" : ""}`}
+                    >
+                      DOF = {Math.max(0, dof)}
+                    </Badge>
+                    <Badge 
+                      variant="secondary" 
+                      class="text-xs"
+                    >
+                      {node.dimension === 0 ? "point" : 
+                       node.dimension === 1 ? "circle S¹" : 
+                       node.dimension === 2 ? "sphere S²" : "ℝ³"}
+                    </Badge>
+                  </div>
+                  <p class="text-sm text-muted-foreground">{node.constraintDescription}</p>
+                  <p class="text-sm font-mono mt-1">{node.configSpaceDescription}</p>
                 </div>
-                <p class="text-sm text-muted-foreground">{node.constraintDescription}</p>
-                <p class="text-sm font-mono mt-1">{node.configSpaceDescription}</p>
-              </div>
-            )}
+              );
+            }}
           </For>
         </div>
       </div>
@@ -357,7 +370,23 @@ export default function GraphPage() {
   const [coordinates, setCoordinates] = createSignal<{
     [key: string]: [number, number, number];
   }>({});
+  const [initialCoordinates, setInitialCoordinates] = createSignal<{
+    [key: string]: [number, number, number];
+  } | null>(null);
+  const [targetDimension, setTargetDimension] = createSignal<number | null>(null);
   const [graphKey, setGraphKey] = createSignal(1); // Force re-mount of ThreeJSGraph (starts at 1 to be truthy)
+  
+  // Track initial coordinates when they first arrive
+  createEffect(() => {
+    const coords = coordinates();
+    const initial = initialCoordinates();
+    const g = graph();
+    
+    // Set initial coordinates when we first receive complete coordinates
+    if (initial === null && Object.keys(coords).length === g.order && g.order > 0) {
+      setInitialCoordinates({ ...coords });
+    }
+  });
 
   // Derived values
   const vertexCount = createMemo(() => graph().order);
@@ -405,6 +434,11 @@ export default function GraphPage() {
 
     return analyzeDimensionFolding(g, coords);
   });
+  
+  // Current dimension (from dimension analysis or default to 3)
+  const currentDimension = createMemo(() => {
+    return dimensionInfo()?.currentDimension ?? 3;
+  });
 
   // Render 2D canvas when graph or canvas changes
   createEffect(() => {
@@ -420,7 +454,14 @@ export default function GraphPage() {
     setGraph(newGraph);
     setGraphInfo(info);
     setCoordinates({}); // Reset coordinates
+    setInitialCoordinates(null); // Reset initial coordinates
+    setTargetDimension(null); // Reset target dimension
     setGraphKey((k) => k + 1); // Force ThreeJSGraph remount
+  };
+  
+  // Callback for when target dimension changes in ThreeJSGraph
+  const handleTargetDimensionChange = (dim: number | null) => {
+    setTargetDimension(dim);
   };
 
   return (
@@ -429,25 +470,24 @@ export default function GraphPage() {
 
       {/* Page header */}
       <div class="mb-6">
-        <div class="flex flex-wrap items-center gap-3 mb-2">
+        <div class="flex flex-wrap items-center gap-3 mb-3">
           <h1 class="text-2xl font-bold tracking-tight">Graph Exploration</h1>
           <GraphSelector
             currentGraphId={graphInfo().id}
             onGraphChange={handleGraphChange}
           />
-          <Badge variant="outline">{vertexCount()}V, {edgeCount()}E</Badge>
+        </div>
+        
+        {/* Status badges row */}
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <Badge variant="outline" class="font-mono">
+            {vertexCount()}V, {edgeCount()}E
+          </Badge>
           <Show when={rigidityInfo()}>
             {(info) => (
-              <>
-                <Badge variant={info().isRigid ? "default" : "secondary"}>
-                  {info().isRigid ? "Rigid" : "Flexible"}
-                </Badge>
-                <Show when={!info().isRigid}>
-                  <Badge variant="outline">
-                    {info().internalDOF} DOF
-                  </Badge>
-                </Show>
-              </>
+              <Badge variant={info().isRigid ? "default" : "secondary"}>
+                {info().isRigid ? "Rigid" : `Flexible (${info().internalDOF} DOF)`}
+              </Badge>
             )}
           </Show>
           <Show when={dimensionInfo()}>
@@ -456,12 +496,10 @@ export default function GraphPage() {
                 <TooltipTrigger>
                   <Badge 
                     variant={dimInfo().canFold ? "secondary" : "outline"}
-                    class={dimInfo().canFold ? "cursor-help" : "cursor-help"}
+                    class="cursor-help"
                   >
-                    {dimInfo().canFold 
-                      ? `${dimInfo().currentDimension}D → ${dimInfo().minimalDimension}D`
-                      : `${dimInfo().currentDimension}D`
-                    }
+                    d_min = {dimInfo().minimalDimension}
+                    {dimInfo().canFold && ` (from ${dimInfo().currentDimension}D)`}
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -471,44 +509,87 @@ export default function GraphPage() {
             )}
           </Show>
         </div>
-        <p class="text-muted-foreground">
-          Visualize graphs as mechanical linkages in 3D space. Explore constraints
-          and transformations to understand the relationship between graph structure and rigid motion.
+        
+        <p class="text-sm text-muted-foreground max-w-3xl">
+          Visualize graphs as mechanical linkages. Each vertex with degree k requires dimension ≥ k 
+          and has DOF = d - k in dimension d. Flexible vertices can move while preserving edge lengths.
         </p>
       </div>
 
-      {/* Main visualization grid */}
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        {/* 2D Graph view */}
-        <Card>
-          <CardHeader class="pb-3">
-            <CardTitle class="text-base">2D Graph Layout</CardTitle>
-            <CardDescription>
-              Abstract graph representation with node coordinates
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+      {/* Main visualization - 3D view takes prominence */}
+      <div class="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6 mb-6">
+        {/* Left/Main column: 3D Linkage view */}
+        <div class="order-2 xl:order-1">
+          <Show when={graphKey()} keyed>
+            {(_key) => (
+              <ThreeJSGraph
+                graph={graph()}
+                width={CANVAS_WIDTH}
+                height={CANVAS_HEIGHT}
+                setCoordinates={setCoordinates}
+                onTargetDimensionChange={handleTargetDimensionChange}
+              />
+            )}
+          </Show>
+        </div>
+        
+        {/* Right column: Analysis panels (scrollable on mobile) */}
+        <div class="order-1 xl:order-2 space-y-4 xl:max-h-[600px] xl:overflow-y-auto xl:pr-2">
+          <GraphAnalysisPanel 
+            graph={graph}
+            internalDOF={() => rigidityInfo()?.internalDOF ?? null}
+            isRigid={() => rigidityInfo()?.isRigid ?? null}
+          />
+          <VertexDOFPanel
+            graph={graph}
+            currentDimension={currentDimension}
+          />
+          <FoldingMetricsPanel
+            graph={graph}
+            coordinates={coordinates}
+            initialCoordinates={initialCoordinates}
+            targetDimension={targetDimension}
+          />
+        </div>
+      </div>
+      
+      {/* 2D Graph view - collapsible section */}
+      <details class="mb-6 group">
+        <summary class="cursor-pointer list-none">
+          <Card class="hover:bg-muted/50 transition-colors">
+            <CardHeader class="pb-3">
+              <div class="flex items-center justify-between">
+                <div>
+                  <CardTitle class="text-base">2D Graph Layout</CardTitle>
+                  <CardDescription>
+                    Abstract graph representation with node coordinates
+                  </CardDescription>
+                </div>
+                <div class="text-muted-foreground">
+                  <svg 
+                    xmlns="http://www.w3.org/2000/svg" 
+                    viewBox="0 0 20 20" 
+                    fill="currentColor" 
+                    class="size-5 transition-transform group-open:rotate-180"
+                  >
+                    <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+                  </svg>
+                </div>
+              </div>
+            </CardHeader>
+          </Card>
+        </summary>
+        <Card class="mt-2">
+          <CardContent class="pt-4">
             <canvas
               ref={setCanvas}
               width={CANVAS_WIDTH}
-              height={CANVAS_HEIGHT}
-              class="w-full rounded-md border bg-muted/30"
+              height={400}
+              class="w-full max-w-2xl rounded-md border bg-muted/30"
             />
           </CardContent>
         </Card>
-
-        {/* 3D Linkage view - key forces remount on graph change */}
-        <Show when={graphKey()} keyed>
-          {(_key) => (
-            <ThreeJSGraph
-              graph={graph()}
-              width={CANVAS_WIDTH}
-              height={CANVAS_HEIGHT}
-              setCoordinates={setCoordinates}
-            />
-          )}
-        </Show>
-      </div>
+      </details>
 
       {/* Matrix views with tabs */}
       <Card>

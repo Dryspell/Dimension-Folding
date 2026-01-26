@@ -6,6 +6,8 @@ import Graph from "graphology";
 import {
   addAxesHelper,
   addGridHelpers,
+  addLighting,
+  createGradientBackground,
   createSpheresAndIntersections,
   drawEdges,
   initSceneAndControls,
@@ -26,7 +28,7 @@ import {
 import { Button } from "~/components/ui/button";
 import { Switch, SwitchControl, SwitchLabel } from "~/components/ui/switch";
 import { Slider } from "~/components/ui/slider";
-import { Card } from "~/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "~/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 import { Badge } from "~/components/ui/badge";
 
@@ -37,6 +39,8 @@ interface ThreeJSGraphProps {
   setCoordinates: Setter<{
     [key: string]: [number, number, number];
   }>;
+  /** Callback when target dimension changes (for folding metrics) */
+  onTargetDimensionChange?: (dimension: number | null) => void;
 }
 
 export default function ThreeJSGraph(props: ThreeJSGraphProps) {
@@ -253,10 +257,12 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
     arcData.forEach(({ nodeLabel, arc }) => {
       // Only draw arc if the angle is significant
       if (arc.angle > 0.01) {
-        const line = createArcVisualization(scene, arc, 0xff6600, 48);
+        // Vibrant orange for motion arcs - stands out on light background
+        const arcColor = 0xf97316; // Orange-500
+        const line = createArcVisualization(scene, arc, arcColor, 48);
         arcLines.push(line);
         
-        const arrow = createArcArrow(scene, arc, 0xff6600);
+        const arrow = createArcArrow(scene, arc, arcColor);
         arcArrows.push(arrow);
         
         arcMap.set(nodeLabel, arc);
@@ -281,6 +287,9 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
     setSelectedTransformIndex(null);
     setPlaybackDirection(1);
     
+    // Notify parent of target dimension change
+    props.onTargetDimensionChange?.(targetDimension);
+    
     // Draw arcs for the first transformation
     if (result.transformations.length > 0) {
       drawTransformationArcs(result.transformations[0]);
@@ -300,6 +309,9 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
     setInterpolationFactor(0);
     setSelectedTransformIndex(null);
     setIsPlaying(false);
+    
+    // Notify parent that target dimension is cleared
+    props.onTargetDimensionChange?.(null);
 
     nodeMeshes.forEach((mesh, i) => {
       mesh.position.copy(originalPositions[i]);
@@ -340,6 +352,7 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
     setRenderer(rendererInstance);
     setCamera(cameraInstance);
 
+    addLighting(scene);
     addAxesHelper(scene);
     addGridHelpers(showGrid, scene);
 
@@ -487,152 +500,164 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
   }
 
   return (
-    <Card class="relative overflow-hidden">
-      <div
-        ref={(el) => (containerRef = el)}
-        class="rounded-t-lg"
-        style={{ width: `${props.width}px`, height: `${props.height}px` }}
-      />
+    <Card class="overflow-hidden">
+      <CardHeader class="pb-2 border-b">
+        <div class="flex items-center justify-between">
+          <div>
+            <CardTitle class="text-base">3D Linkage View</CardTitle>
+            <CardDescription class="text-xs">
+              Interactive visualization with constraint spheres
+            </CardDescription>
+          </div>
+          <div class="flex items-center gap-2">
+            <Show when={hasTransformations()}>
+              <Badge variant="secondary" class="text-xs">
+                {currentTransformName()}
+              </Badge>
+            </Show>
+          </div>
+        </div>
+      </CardHeader>
+      
+      {/* 3D Canvas container */}
+      <div class="relative bg-gradient-to-br from-slate-50 to-slate-100 border-b">
+        <div
+          ref={(el) => (containerRef = el)}
+          class="mx-auto"
+          style={{ width: `${props.width}px`, height: `${props.height}px` }}
+        />
 
-      {/* Hover info overlay */}
-      {hoveredNodeInfo() && (
-        <div class="absolute top-4 left-4 rounded-lg border bg-card/95 backdrop-blur p-3 shadow-lg">
-          <p class="font-semibold text-sm">{hoveredNodeInfo()!.label}</p>
-          <p class="text-xs text-muted-foreground font-mono">
-            ({hoveredNodeInfo()!.coordinates.map((c: number) => c.toFixed(2)).join(", ")})
-          </p>
-        </div>
-      )}
+        {/* Hover info overlay */}
+        <Show when={hoveredNodeInfo()}>
+          <div class="absolute top-3 left-3 rounded-lg border bg-white/95 backdrop-blur-sm px-3 py-2 shadow-md">
+            <p class="font-semibold text-sm">{hoveredNodeInfo()!.label}</p>
+            <p class="text-xs text-muted-foreground font-mono">
+              ({hoveredNodeInfo()!.coordinates.map((c: number) => c.toFixed(2)).join(", ")})
+            </p>
+          </div>
+        </Show>
 
-      {/* Controls panel */}
-      <div class="absolute top-4 right-4 rounded-lg border bg-card/95 backdrop-blur shadow-lg overflow-hidden min-w-[180px]">
-        <div class="px-3 py-2 border-b bg-muted/50">
-          <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Visibility</span>
+        {/* Controls panel - compact floating */}
+        <div class="absolute top-3 right-3 rounded-lg border bg-white/95 backdrop-blur-sm shadow-md overflow-hidden">
+          <div class="p-2.5 space-y-2">
+            <Switch checked={showGrid()} onChange={setShowGrid}>
+              <SwitchControl class="scale-75" />
+              <SwitchLabel class="text-xs flex items-center gap-1.5 cursor-pointer text-slate-600">
+                Grid
+              </SwitchLabel>
+            </Switch>
+            <Switch checked={showSpheres()} onChange={setShowSpheres}>
+              <SwitchControl class="scale-75" />
+              <SwitchLabel class="text-xs flex items-center gap-1.5 cursor-pointer text-blue-600">
+                Spheres
+              </SwitchLabel>
+            </Switch>
+            <Switch checked={showIntersections()} onChange={setShowIntersections}>
+              <SwitchControl class="scale-75" />
+              <SwitchLabel class="text-xs flex items-center gap-1.5 cursor-pointer text-cyan-600">
+                Intersections
+              </SwitchLabel>
+            </Switch>
+          </div>
         </div>
-        <div class="p-3 space-y-3">
-          <Switch checked={showGrid()} onChange={setShowGrid}>
-            <SwitchControl />
-            <SwitchLabel class="text-sm flex items-center gap-2 cursor-pointer">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="size-4 text-muted-foreground">
-                <path fill-rule="evenodd" d="M4.25 2A2.25 2.25 0 002 4.25v11.5A2.25 2.25 0 004.25 18h11.5A2.25 2.25 0 0018 15.75V4.25A2.25 2.25 0 0015.75 2H4.25zM3.5 8.25v-4A.75.75 0 014.25 3.5h4V8.25H3.5zm0 1.5v2.5h4.75v-2.5H3.5zm0 4v2a.75.75 0 00.75.75h4v-2.75H3.5zm6.25 2.75h2.5v-2.75h-2.5v2.75zm4 0h2a.75.75 0 00.75-.75v-2h-2.75v2.75zm2.75-4.25h-2.75v-2.5h2.75v2.5zm0-4h-2.75V3.5h2a.75.75 0 01.75.75v4zm-4.25-4.75h-2.5V8.25h2.5V3.5zm0 6.25h-2.5v2.5h2.5v-2.5z" clip-rule="evenodd" />
-              </svg>
-              Grid
-            </SwitchLabel>
-          </Switch>
-          <Switch checked={showSpheres()} onChange={setShowSpheres}>
-            <SwitchControl />
-            <SwitchLabel class="text-sm flex items-center gap-2 cursor-pointer">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="size-4 text-blue-400">
-                <path d="M10 1a9 9 0 100 18 9 9 0 000-18zM3 10a7 7 0 1114 0 7 7 0 01-14 0z" />
-              </svg>
-              Spheres
-            </SwitchLabel>
-          </Switch>
-          <Switch checked={showIntersections()} onChange={setShowIntersections}>
-            <SwitchControl />
-            <SwitchLabel class="text-sm flex items-center gap-2 cursor-pointer">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="size-4 text-cyan-400">
-                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-1-9a1 1 0 112 0v4a1 1 0 11-2 0v-4zm1-5a1 1 0 100 2 1 1 0 000-2z" clip-rule="evenodd" />
-              </svg>
-              Intersections
-            </SwitchLabel>
-          </Switch>
-        </div>
+        
+        {/* Keyboard shortcuts hint */}
+        <Show when={hasTransformations()}>
+          <div class="absolute bottom-3 left-3 text-xs text-slate-400 bg-white/70 px-2 py-1 rounded">
+            Space: play/pause | R: reset | ←→: direction
+          </div>
+        </Show>
       </div>
 
       {/* Folding controls */}
-      <div class="border-t p-4">
-        <div class="flex items-center gap-3">
-          <span class="text-sm font-medium text-muted-foreground">Fold to:</span>
-          <Tooltip>
-            <TooltipTrigger>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => generateTransformations(2)}
-                disabled={isPlaying()}
-              >
-                2D (Plane)
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Generate transformations to fold to a 2D plane</p>
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => generateTransformations(1)}
-                disabled={isPlaying()}
-              >
-                1D (Line)
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Generate transformations to fold to a 1D line</p>
-            </TooltipContent>
-          </Tooltip>
-          <Show when={hasTransformations()}>
-            <Button size="sm" variant="ghost" onClick={clearTransformations} disabled={isPlaying()}>
-              Clear
+      <div class="border-t p-3 bg-muted/30">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-xs font-medium text-muted-foreground uppercase tracking-wide">Fold to:</span>
+          <div class="flex gap-1">
+            <Button
+              size="sm"
+              variant={hasTransformations() ? "outline" : "default"}
+              class="h-7 text-xs"
+              onClick={() => generateTransformations(2)}
+              disabled={isPlaying()}
+            >
+              2D Plane
             </Button>
-            <span class="text-xs text-muted-foreground">
-              {transformationCount()} transformation{transformationCount() > 1 ? "s" : ""}
-            </span>
+            <Button
+              size="sm"
+              variant={hasTransformations() ? "outline" : "default"}
+              class="h-7 text-xs"
+              onClick={() => generateTransformations(1)}
+              disabled={isPlaying()}
+            >
+              1D Line
+            </Button>
+          </div>
+          <Show when={hasTransformations()}>
+            <div class="flex items-center gap-2 ml-auto">
+              <Badge variant="outline" class="text-xs">
+                {transformationCount()} step{transformationCount() > 1 ? "s" : ""}
+              </Badge>
+              <Button size="sm" variant="ghost" class="h-7 text-xs" onClick={clearTransformations} disabled={isPlaying()}>
+                Reset
+              </Button>
+            </div>
           </Show>
         </div>
       </div>
 
       {/* Transformation list for inspection */}
       <Show when={hasTransformations()}>
-        <div class="border-t p-4">
-          <h4 class="text-sm font-medium mb-3">Transformations</h4>
-          <div class="space-y-2">
+        <div class="border-t p-3">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-medium text-muted-foreground uppercase tracking-wide">Steps</span>
+          </div>
+          <div class="space-y-1.5 max-h-48 overflow-y-auto">
             <For each={transformations()}>
               {(transform, index) => (
                 <div
-                  class={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                  class={`p-2 rounded-md border cursor-pointer transition-all text-xs ${
                     selectedTransformIndex() === index() 
-                      ? "border-primary bg-primary/5" 
-                      : "border-border hover:border-primary/50"
+                      ? "border-primary bg-primary/10 shadow-sm" 
+                      : "border-transparent bg-muted/50 hover:bg-muted"
                   }`}
                   onClick={() => inspectTransformation(index())}
                 >
-                  <div class="flex items-center justify-between mb-1">
-                    <span class="font-medium text-sm">{transform.name}</span>
-                    <Badge variant={transform.type === "rigid" ? "secondary" : "default"}>
-                      {transform.type === "rigid" ? "Rigid" : "Internal DOF"}
-                    </Badge>
-                  </div>
-                  <p class="text-xs text-muted-foreground">{transform.description}</p>
-                  <div class="flex gap-2 mt-2">
-                    <Badge variant="outline" class="text-xs">
-                      {transform.startDimension}D → {transform.endDimension}D
-                    </Badge>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      class="h-5 px-2 text-xs"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        inspectTransformation(index(), false);
-                      }}
-                    >
-                      Start
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      class="h-5 px-2 text-xs"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        inspectTransformation(index(), true);
-                      }}
-                    >
-                      End
-                    </Button>
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 min-w-0">
+                      <span class={`font-medium ${selectedTransformIndex() === index() ? "text-primary" : ""}`}>
+                        {index() + 1}. {transform.name}
+                      </span>
+                    </div>
+                    <div class="flex items-center gap-1 shrink-0">
+                      <Badge variant="outline" class="text-[10px] h-5">
+                        {transform.startDimension}→{transform.endDimension}D
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        class="h-5 w-5 p-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          inspectTransformation(index(), false);
+                        }}
+                        title="Jump to start"
+                      >
+                        ⏮
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        class="h-5 w-5 p-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          inspectTransformation(index(), true);
+                        }}
+                        title="Jump to end"
+                      >
+                        ⏭
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -643,49 +668,36 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
 
       {/* Playback controls */}
       <Show when={hasTransformations()}>
-        <div class="border-t p-4">
-          <div class="flex items-center gap-3 mb-3">
-            <Button size="sm" variant="outline" onClick={handleReset} title="Reset (R)">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-4">
-                <path fill-rule="evenodd" d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z" clip-rule="evenodd" />
-              </svg>
+        <div class="border-t p-3 bg-muted/20">
+          <div class="flex items-center gap-2 mb-2">
+            <Button size="sm" variant="outline" class="h-8 w-8 p-0" onClick={handleReset} title="Reset (R)">
+              ⏮
             </Button>
-            <Button size="sm" variant={isPlaying() ? "secondary" : "default"} onClick={handlePlayPause} title="Play/Pause (Space)">
-              {isPlaying() ? (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-4">
-                  <path fill-rule="evenodd" d="M6.75 5.25a.75.75 0 01.75-.75H9a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H7.5a.75.75 0 01-.75-.75V5.25zm7.5 0A.75.75 0 0115 4.5h1.5a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H15a.75.75 0 01-.75-.75V5.25z" clip-rule="evenodd" />
-                </svg>
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-4">
-                  <path fill-rule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clip-rule="evenodd" />
-                </svg>
-              )}
+            <Button 
+              size="sm" 
+              variant={isPlaying() ? "secondary" : "default"} 
+              class="h-8 w-8 p-0" 
+              onClick={handlePlayPause} 
+              title="Play/Pause (Space)"
+            >
+              {isPlaying() ? "⏸" : "▶"}
             </Button>
-            <Button size="sm" variant="outline" onClick={handleDirectionToggle}>
-              {playbackDirection() > 0 ? (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-4">
-                  <path fill-rule="evenodd" d="M13.28 11.47a.75.75 0 010 1.06l-7.5 7.5a.75.75 0 01-1.06-1.06L11.69 12 4.72 5.03a.75.75 0 011.06-1.06l7.5 7.5z" clip-rule="evenodd" />
-                  <path fill-rule="evenodd" d="M19.28 11.47a.75.75 0 010 1.06l-7.5 7.5a.75.75 0 11-1.06-1.06L17.69 12l-6.97-6.97a.75.75 0 011.06-1.06l7.5 7.5z" clip-rule="evenodd" />
-                </svg>
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-4">
-                  <path fill-rule="evenodd" d="M10.72 11.47a.75.75 0 000 1.06l7.5 7.5a.75.75 0 101.06-1.06L12.31 12l6.97-6.97a.75.75 0 00-1.06-1.06l-7.5 7.5z" clip-rule="evenodd" />
-                  <path fill-rule="evenodd" d="M4.72 11.47a.75.75 0 000 1.06l7.5 7.5a.75.75 0 101.06-1.06L6.31 12l6.97-6.97a.75.75 0 00-1.06-1.06l-7.5 7.5z" clip-rule="evenodd" />
-                </svg>
-              )}
+            <Button size="sm" variant="outline" class="h-8 w-8 p-0" onClick={handleDirectionToggle} title="Direction">
+              {playbackDirection() > 0 ? "⏩" : "⏪"}
             </Button>
-            <div class="flex-1 px-3 py-1.5 rounded-md bg-muted text-sm font-medium text-center min-w-[150px]">
-              {currentTransformName()}
-            </div>
-            <div class="w-32">
-              <Slider
-                minValue={0.1}
-                maxValue={2}
-                step={0.1}
-                value={[playbackSpeed()]}
-                onChange={handleSpeedChange}
-                label="Speed"
-              />
+            <div class="flex-1" />
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-muted-foreground">Speed</span>
+              <div class="w-20">
+                <Slider
+                  minValue={0.25}
+                  maxValue={2}
+                  step={0.25}
+                  value={[playbackSpeed()]}
+                  onChange={handleSpeedChange}
+                />
+              </div>
+              <span class="text-xs font-mono w-8">{playbackSpeed()}x</span>
             </div>
           </div>
           <Timeline
@@ -701,10 +713,10 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
         </div>
       </Show>
 
-      {/* Empty state */}
+      {/* Empty state hint */}
       <Show when={!hasTransformations()}>
-        <div class="border-t p-4 text-center text-sm text-muted-foreground">
-          Click "2D (Plane)" or "1D (Line)" to generate folding transformations
+        <div class="border-t p-3 text-center text-xs text-muted-foreground bg-muted/20">
+          Select a target dimension above to animate the folding process
         </div>
       </Show>
     </Card>

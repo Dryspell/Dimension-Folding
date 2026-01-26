@@ -34,6 +34,15 @@ export default function MainNav() {
               Exploration
             </A>
             <A
+              href="/graphs/contraction"
+              class={cn(
+                "transition-colors hover:text-foreground/80",
+                "text-foreground/60"
+              )}
+            >
+              Contraction
+            </A>
+            <A
               href="/about"
               class={cn(
                 "transition-colors hover:text-foreground/80",

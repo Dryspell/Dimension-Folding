@@ -404,6 +404,81 @@ export function createOctahedronGraph(): FrameworkGraph {
   return finalizeGraph(graph);
 }
 
+/**
+ * Create K_{2,2,2} - Complete tripartite graph (octahedron graph).
+ * 6 vertices in 3 sets of 2, each connected to all vertices in other sets.
+ * Also known as the cocktail party graph or hyperoctahedral graph.
+ * d_min = 4 (requires 4D for generic rigid embedding).
+ */
+export function createK222Graph(): FrameworkGraph {
+  const graph = new Graph<NodeAttributesPartial, EdgeAttributes>();
+
+  // Set A: vertices 1, 2
+  graph.addNode("a1", { label: "a₁", size: 10, color: getNodeColor(0) });
+  graph.addNode("a2", { label: "a₂", size: 10, color: getNodeColor(0) });
+  
+  // Set B: vertices 3, 4
+  graph.addNode("b1", { label: "b₁", size: 10, color: getNodeColor(1) });
+  graph.addNode("b2", { label: "b₂", size: 10, color: getNodeColor(1) });
+  
+  // Set C: vertices 5, 6
+  graph.addNode("c1", { label: "c₁", size: 10, color: getNodeColor(2) });
+  graph.addNode("c2", { label: "c₂", size: 10, color: getNodeColor(2) });
+
+  // All edges between A and B
+  graph.addEdge("a1", "b1", { size: 3, color: getEdgeColor(0) });
+  graph.addEdge("a1", "b2", { size: 3, color: getEdgeColor(0) });
+  graph.addEdge("a2", "b1", { size: 3, color: getEdgeColor(0) });
+  graph.addEdge("a2", "b2", { size: 3, color: getEdgeColor(0) });
+
+  // All edges between A and C
+  graph.addEdge("a1", "c1", { size: 3, color: getEdgeColor(1) });
+  graph.addEdge("a1", "c2", { size: 3, color: getEdgeColor(1) });
+  graph.addEdge("a2", "c1", { size: 3, color: getEdgeColor(1) });
+  graph.addEdge("a2", "c2", { size: 3, color: getEdgeColor(1) });
+
+  // All edges between B and C
+  graph.addEdge("b1", "c1", { size: 3, color: getEdgeColor(2) });
+  graph.addEdge("b1", "c2", { size: 3, color: getEdgeColor(2) });
+  graph.addEdge("b2", "c1", { size: 3, color: getEdgeColor(2) });
+  graph.addEdge("b2", "c2", { size: 3, color: getEdgeColor(2) });
+
+  return finalizeGraph(graph);
+}
+
+/**
+ * Create Square Pyramid - Octahedron minus one vertex.
+ * 5 vertices: 4 forming a square base, 1 apex.
+ * The base is a cycle C₄ (flexible), apex connects to all base vertices.
+ * d_min = 3 (the square can collapse but requires 3D for apex constraint).
+ */
+export function createSquarePyramidGraph(): FrameworkGraph {
+  const graph = new Graph<NodeAttributesPartial, EdgeAttributes>();
+
+  // Apex
+  graph.addNode("apex", { label: "apex", size: 12, color: getNodeColor(0) });
+  
+  // Square base vertices
+  graph.addNode("1", { label: "v₁", size: 10, color: getNodeColor(1) });
+  graph.addNode("2", { label: "v₂", size: 10, color: getNodeColor(2) });
+  graph.addNode("3", { label: "v₃", size: 10, color: getNodeColor(3) });
+  graph.addNode("4", { label: "v₄", size: 10, color: getNodeColor(4) });
+
+  // Square base edges (cycle)
+  graph.addEdge("1", "2", { size: 3, color: getEdgeColor(0) });
+  graph.addEdge("2", "3", { size: 3, color: getEdgeColor(0) });
+  graph.addEdge("3", "4", { size: 3, color: getEdgeColor(0) });
+  graph.addEdge("4", "1", { size: 3, color: getEdgeColor(0) });
+
+  // Apex to all base vertices
+  graph.addEdge("apex", "1", { size: 3, color: getEdgeColor(1) });
+  graph.addEdge("apex", "2", { size: 3, color: getEdgeColor(1) });
+  graph.addEdge("apex", "3", { size: 3, color: getEdgeColor(1) });
+  graph.addEdge("apex", "4", { size: 3, color: getEdgeColor(1) });
+
+  return finalizeGraph(graph);
+}
+
 // ============================================================================
 // Graph Registry
 // ============================================================================
@@ -560,13 +635,37 @@ export const GRAPH_REGISTRY: { info: GraphInfo; create: () => FrameworkGraph }[]
     info: {
       id: "octahedron",
       name: "Octahedron",
-      description: "Octahedron skeleton - rigid",
+      description: "Octahedron skeleton - rigid in ℝ³",
       vertices: 6,
       edges: 12,
       expectedRigid: true,
       category: "platonic",
     },
     create: createOctahedronGraph,
+  },
+  {
+    info: {
+      id: "k222",
+      name: "K₂,₂,₂",
+      description: "Complete tripartite graph - d_min = 4",
+      vertices: 6,
+      edges: 12,
+      expectedRigid: true,
+      category: "other",
+    },
+    create: createK222Graph,
+  },
+  {
+    info: {
+      id: "square-pyramid",
+      name: "Square Pyramid",
+      description: "Octahedron minus one vertex - d_min = 3",
+      vertices: 5,
+      edges: 8,
+      expectedRigid: true,
+      category: "other",
+    },
+    create: createSquarePyramidGraph,
   },
 ];
 
