@@ -327,7 +327,7 @@
 - [ ] Intersection circles sometimes flicker during rapid animation
 - [ ] Memory leak: sphere geometries not disposed on graph change
 - [x] 2D canvas doesn't update when graph changes (fixed with createEffect)
-- [ ] Race condition: rigidity/dimension badges not updating on graph switch (coordinates timing issue)
+- [x] Race condition: rigidity/dimension badges not updating on graph switch (fixed with hasAllCoordinates check)
 
 ---
 
@@ -351,7 +351,7 @@
 - [x] Add reset button to return to initial positions
 - [x] Display edge count and vertex count in header
 - [ ] Add link to README mathematical background from app
-- [ ] Show transformation name during playback
+- [x] Show transformation name during playback
 - [x] Add keyboard shortcut: Space for play/pause (also R for reset, arrows for direction)
 
 ---

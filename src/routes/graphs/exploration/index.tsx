@@ -69,7 +69,10 @@ function RigidityPanel(props: {
   const analysis = createMemo<RigidityAnalysis | null>(() => {
     const coords = props.coordinates();
     const graph = props.graph();
-    if (Object.keys(coords).length === 0) return null;
+    // Check that we have coordinates for ALL vertices
+    // Note: coords uses labels (v₁, v₂) not node IDs (1, 2)
+    const coordKeys = Object.keys(coords);
+    if (coordKeys.length !== graph.order || coordKeys.length === 0) return null;
 
     const { matrix, rowLabels, colLabels } = createRigidityMatrix(
       graph,
@@ -241,7 +244,7 @@ export default function GraphPage() {
   const [coordinates, setCoordinates] = createSignal<{
     [key: string]: [number, number, number];
   }>({});
-  const [graphKey, setGraphKey] = createSignal(0); // Force re-mount of ThreeJSGraph
+  const [graphKey, setGraphKey] = createSignal(1); // Force re-mount of ThreeJSGraph (starts at 1 to be truthy)
 
   // Derived values
   const vertexCount = createMemo(() => graph().order);
@@ -253,11 +256,22 @@ export default function GraphPage() {
   // Incidence matrix (reactive)
   const incidenceData = createMemo(() => createIncidenceMatrix(graph()));
 
+  // Helper to check if all graph vertices have coordinates
+  // Note: Graph node IDs are "1", "2", etc. but coordinates use labels like "v₁", "v₂"
+  const hasAllCoordinates = (g: FrameworkGraph, coords: { [key: string]: [number, number, number] }) => {
+    const coordKeys = Object.keys(coords);
+    // Check that we have the same number of coordinates as vertices
+    if (coordKeys.length !== g.order) return false;
+    if (coordKeys.length === 0) return false;
+    return true;
+  };
+
   // Rigidity analysis (reactive based on coordinates)
   const rigidityInfo = createMemo(() => {
     const coords = coordinates();
     const g = graph();
-    if (Object.keys(coords).length === 0) return null;
+    // Only compute when we have coordinates for ALL vertices in the current graph
+    if (!hasAllCoordinates(g, coords)) return null;
 
     const { matrix } = createRigidityMatrix(g, coords, 3);
     const rank = computeMatrixRank(matrix);
@@ -273,7 +287,8 @@ export default function GraphPage() {
   const dimensionInfo = createMemo<DimensionAnalysis | null>(() => {
     const coords = coordinates();
     const g = graph();
-    if (Object.keys(coords).length === 0) return null;
+    // Only compute when we have coordinates for ALL vertices in the current graph
+    if (!hasAllCoordinates(g, coords)) return null;
 
     return analyzeDimensionFolding(g, coords);
   });
@@ -370,10 +385,10 @@ export default function GraphPage() {
         </Card>
 
         {/* 3D Linkage view - key forces remount on graph change */}
-        <Show when={graph()} keyed>
-          {(g) => (
+        <Show when={graphKey()} keyed>
+          {(_key) => (
             <ThreeJSGraph
-              graph={g}
+              graph={graph()}
               width={CANVAS_WIDTH}
               height={CANVAS_HEIGHT}
               setCoordinates={setCoordinates}

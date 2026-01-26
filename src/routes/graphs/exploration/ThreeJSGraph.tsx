@@ -85,14 +85,29 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
   const circles: THREE.Mesh[] = [];
   const intersectionPoints: THREE.Mesh[] = [];
 
-  // Define the transformations sequence
+  // Define the transformations sequence with names
   // TODO: These should be configurable or derived from linkage constraints
-  const transformations = [
-    new THREE.Matrix4().makeRotationY(Math.PI / 4),
-    new THREE.Matrix4().makeScale(1.5, 1.5, 1.5),
-    new THREE.Matrix4().makeRotationZ(Math.PI / 4),
-    new THREE.Matrix4().makeTranslation(1, 0, 0),
+  const transformationDefs = [
+    { name: "Rotate Y (45°)", matrix: new THREE.Matrix4().makeRotationY(Math.PI / 4) },
+    { name: "Scale (1.5×)", matrix: new THREE.Matrix4().makeScale(1.5, 1.5, 1.5) },
+    { name: "Rotate Z (45°)", matrix: new THREE.Matrix4().makeRotationZ(Math.PI / 4) },
+    { name: "Translate X (+1)", matrix: new THREE.Matrix4().makeTranslation(1, 0, 0) },
   ];
+  const transformations = transformationDefs.map((t) => t.matrix);
+  const transformationNames = transformationDefs.map((t) => t.name);
+
+  // Current transformation name for display
+  const currentTransformName = () => {
+    const idx = currentTransformationIndex();
+    const factor = interpolationFactor();
+    if (idx >= transformationNames.length) {
+      return "Complete";
+    }
+    if (idx === 0 && factor === 0) {
+      return "Initial";
+    }
+    return transformationNames[idx];
+  };
 
   // Store ORIGINAL positions (never mutated after initialization)
   const originalPositions: THREE.Vector3[] = [];
@@ -469,6 +484,10 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
               </svg>
             )}
           </Button>
+          {/* Transformation name display */}
+          <div class="flex-1 px-3 py-1.5 rounded-md bg-muted text-sm font-medium text-center min-w-[120px]">
+            {currentTransformName()}
+          </div>
           <div class="w-32">
             <Slider
               minValue={0.1}
