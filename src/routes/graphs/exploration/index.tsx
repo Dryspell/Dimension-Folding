@@ -3,6 +3,10 @@ import { Title } from "@solidjs/meta";
 import {
   createAdjacencyMatrix,
   createIncidenceMatrix,
+  createRigidityMatrix,
+  computeMatrixRank,
+  computeTrivialDOF,
+  computeInternalDOF,
 } from "./matrixUtils";
 import MatrixTable from "./MatrixTable";
 import ThreeJSGraph from "./ThreeJSGraph";
@@ -38,6 +42,134 @@ function CoordinateMatrix(props: {
   );
 }
 
+interface RigidityAnalysis {
+  matrix: number[][];
+  rowLabels: string[];
+  colLabels: string[];
+  rank: number;
+  expectedRank: number;
+  trivialDOF: number;
+  internalDOF: number;
+  isRigid: boolean;
+  vertices: number;
+  edges: number;
+  dimension: number;
+}
+
+function RigidityPanel(props: {
+  graph: ReturnType<typeof createVGraph>;
+  coordinates: Accessor<{ [key: string]: [number, number, number] }>;
+  dimension?: 2 | 3;
+}) {
+  const dimension = props.dimension ?? 3;
+
+  const analysis = createMemo<RigidityAnalysis | null>(() => {
+    const coords = props.coordinates();
+    if (Object.keys(coords).length === 0) return null;
+
+    const { matrix, rowLabels, colLabels } = createRigidityMatrix(
+      props.graph,
+      coords,
+      dimension
+    );
+
+    const rank = computeMatrixRank(matrix);
+    const vertices = props.graph.order;
+    const edges = props.graph.size;
+    const trivialDOF = computeTrivialDOF(dimension);
+    const expectedRank = dimension * vertices - trivialDOF;
+    const internalDOF = computeInternalDOF(rank, vertices, dimension);
+    const isRigid = internalDOF === 0;
+
+    return {
+      matrix,
+      rowLabels,
+      colLabels,
+      rank,
+      expectedRank,
+      trivialDOF,
+      internalDOF,
+      isRigid,
+      vertices,
+      edges,
+      dimension,
+    };
+  });
+
+  return (
+    <div class="space-y-4">
+      {analysis() ? (
+        <>
+          {/* Rigidity Status */}
+          <div class="flex flex-wrap items-center gap-3">
+            <Badge variant={analysis()!.isRigid ? "default" : "secondary"}>
+              {analysis()!.isRigid ? "Rigid" : "Flexible"}
+            </Badge>
+            <span class="text-sm text-muted-foreground">
+              in ℝ<sup>{analysis()!.dimension}</sup>
+            </span>
+          </div>
+
+          {/* Statistics */}
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div class="rounded-lg border p-3">
+              <div class="text-xs text-muted-foreground uppercase tracking-wide">Rank</div>
+              <div class="text-2xl font-bold">{analysis()!.rank}</div>
+              <div class="text-xs text-muted-foreground">
+                of {analysis()!.expectedRank} expected
+              </div>
+            </div>
+            <div class="rounded-lg border p-3">
+              <div class="text-xs text-muted-foreground uppercase tracking-wide">Internal DOF</div>
+              <div class="text-2xl font-bold">{analysis()!.internalDOF}</div>
+              <div class="text-xs text-muted-foreground">
+                flex modes
+              </div>
+            </div>
+            <div class="rounded-lg border p-3">
+              <div class="text-xs text-muted-foreground uppercase tracking-wide">Trivial DOF</div>
+              <div class="text-2xl font-bold">{analysis()!.trivialDOF}</div>
+              <div class="text-xs text-muted-foreground">
+                rigid motions
+              </div>
+            </div>
+            <div class="rounded-lg border p-3">
+              <div class="text-xs text-muted-foreground uppercase tracking-wide">Matrix Size</div>
+              <div class="text-2xl font-bold">{analysis()!.edges}×{analysis()!.dimension * analysis()!.vertices}</div>
+              <div class="text-xs text-muted-foreground">
+                edges × d·vertices
+              </div>
+            </div>
+          </div>
+
+          {/* Rigidity Matrix */}
+          <div class="overflow-x-auto">
+            <MatrixTable
+              title="Rigidity Matrix R"
+              rowLabels={analysis()!.rowLabels}
+              colLabels={analysis()!.colLabels}
+              matrix={analysis()!.matrix}
+              rounding={3}
+            />
+          </div>
+
+          <p class="text-sm text-muted-foreground">
+            The rigidity matrix R is the Jacobian of edge length constraints.
+            Its null space contains infinitesimal motions preserving edge lengths.
+            {analysis()!.isRigid
+              ? " This framework is rigid—only trivial motions (translations/rotations) exist."
+              : ` This framework has ${analysis()!.internalDOF} internal degree(s) of freedom.`}
+          </p>
+        </>
+      ) : (
+        <p class="text-sm text-muted-foreground">
+          Waiting for coordinate data...
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function GraphPage() {
   const [canvas, setCanvas] = createSignal<HTMLCanvasElement | undefined>(undefined);
   const graph = createVGraph();
@@ -50,6 +182,25 @@ export default function GraphPage() {
   const [coordinates, setCoordinates] = createSignal<{
     [key: string]: [number, number, number];
   }>({});
+
+  // Graph statistics
+  const vertexCount = graph.order;
+  const edgeCount = graph.size;
+
+  // Rigidity analysis (reactive based on coordinates)
+  const rigidityInfo = createMemo(() => {
+    const coords = coordinates();
+    if (Object.keys(coords).length === 0) return null;
+
+    const { matrix } = createRigidityMatrix(graph, coords, 3);
+    const rank = computeMatrixRank(matrix);
+    const trivialDOF = computeTrivialDOF(3);
+    const expectedRank = 3 * vertexCount - trivialDOF;
+    const internalDOF = computeInternalDOF(rank, vertexCount, 3);
+    const isRigid = internalDOF === 0;
+
+    return { rank, expectedRank, internalDOF, isRigid };
+  });
 
   onMount(() => {
     const canvasContext = canvas()?.getContext("2d");
@@ -129,6 +280,19 @@ export default function GraphPage() {
         <div class="flex items-center gap-3 mb-2">
           <h1 class="text-2xl font-bold tracking-tight">Graph Exploration</h1>
           <Badge variant="secondary">K₁,₂ (V-Graph)</Badge>
+          <Badge variant="outline">{vertexCount}V, {edgeCount}E</Badge>
+          {rigidityInfo() && (
+            <>
+              <Badge variant={rigidityInfo()!.isRigid ? "default" : "secondary"}>
+                {rigidityInfo()!.isRigid ? "Rigid" : "Flexible"}
+              </Badge>
+              {!rigidityInfo()!.isRigid && (
+                <Badge variant="outline">
+                  {rigidityInfo()!.internalDOF} DOF
+                </Badge>
+              )}
+            </>
+          )}
         </div>
         <p class="text-muted-foreground">
           Visualize graphs as mechanical linkages in 3D space. Explore constraints
@@ -179,6 +343,7 @@ export default function GraphPage() {
               <TabsTrigger value="adjacency">Adjacency</TabsTrigger>
               <TabsTrigger value="incidence">Incidence</TabsTrigger>
               <TabsTrigger value="coordinates">Coordinates</TabsTrigger>
+              <TabsTrigger value="rigidity">Rigidity</TabsTrigger>
             </TabsList>
             <TabsContent value="adjacency">
               <div class="max-w-md">
@@ -213,6 +378,9 @@ export default function GraphPage() {
               <p class="mt-3 text-sm text-muted-foreground">
                 The coordinate matrix shows each vertex's position in 3D space (x, y, z).
               </p>
+            </TabsContent>
+            <TabsContent value="rigidity">
+              <RigidityPanel graph={graph} coordinates={coordinates} dimension={3} />
             </TabsContent>
           </Tabs>
         </CardContent>

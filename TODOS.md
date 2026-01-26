@@ -20,27 +20,27 @@
 
 ### 1.1 Edge Length Preservation
 
-- [ ] Create `constraintSolver.ts` module
-- [ ] Implement `computeEdgeLengths(graph, positions)` - returns map of edge → length
-- [ ] Implement `projectToConstraints(positions, edges, targetLengths, iterations)` - FABRIK-style solver
+- [x] Create `constraintSolver.ts` module
+- [x] Implement `computeEdgeLengths(graph, positions)` - returns map of edge → length
+- [x] Implement `projectToConstraints(positions, edges, targetLengths, iterations)` - FABRIK-style solver
 - [ ] Add constraint violation display (show current vs target edge lengths)
-- [ ] Implement tolerance parameter for constraint satisfaction (default: 0.001)
-- [ ] Add visual indicator when constraints are violated (edge color change)
+- [x] Implement tolerance parameter for constraint satisfaction (default: 0.001)
+- [x] Add visual indicator when constraints are violated (edge color change via `getViolationColor`)
 
 ### 1.2 Motion Generation
 
 - [ ] Replace current `Matrix4` transformations with constraint-preserving motion
-- [ ] Implement `computeFlexDirection(graph, positions)` - find valid flex directions
+- [x] Implement `computeFlexDirection(graph, positions)` - find valid flex directions (as `computeFlexDirections`)
 - [ ] Implement single-vertex drag with constraint projection
-- [ ] Add "nudge" controls to move flexible vertex along valid path
+- [x] Add "nudge" controls to move flexible vertex along valid path (as `nudgeWithConstraints`)
 - [ ] Store and replay motion paths
 
 ### 1.3 Rigid vs Flexible Detection
 
-- [ ] Add `isRigid(graph, positions, dimension)` function
-- [ ] Display rigid/flexible badge in UI
+- [x] Add `isRigid(graph, positions, dimension)` function (as `isInfinitesimallyRigid`)
+- [x] Display rigid/flexible badge in UI
 - [ ] Disable motion controls for rigid configurations
-- [ ] Show number of internal DOF
+- [x] Show number of internal DOF
 
 ---
 
@@ -50,27 +50,27 @@
 
 ### 2.1 Matrix Computation
 
-- [ ] Implement `createRigidityMatrix(graph, coordinates)` in `matrixUtils.ts`
+- [x] Implement `createRigidityMatrix(graph, coordinates)` in `matrixUtils.ts`
   - Input: Graph with n vertices, m edges; coordinates in ℝᵈ
   - Output: m × (d×n) matrix
   - Row for edge (u,v): [0,..., p(u)-p(v), ..., 0, ..., p(v)-p(u), ..., 0]
 - [ ] Add unit tests for rigidity matrix on known graphs (K₃, K₄, V-graph)
-- [ ] Handle 2D vs 3D embeddings correctly
+- [x] Handle 2D vs 3D embeddings correctly
 
 ### 2.2 Matrix Analysis
 
-- [ ] Implement `computeMatrixRank(matrix)` - Gaussian elimination or SVD
-- [ ] Implement `computeNullSpace(matrix)` - infinitesimal motions
-- [ ] Compute expected rank: d|V| - d(d+1)/2
-- [ ] Compare actual vs expected rank for rigidity determination
+- [x] Implement `computeMatrixRank(matrix)` - Gaussian elimination or SVD
+- [x] Implement `computeNullSpace(matrix)` - infinitesimal motions
+- [x] Compute expected rank: d|V| - d(d+1)/2
+- [x] Compare actual vs expected rank for rigidity determination
 
 ### 2.3 UI Integration
 
-- [ ] Add "Rigidity" tab to matrix display panel
-- [ ] Display rigidity matrix with proper labeling
-- [ ] Show matrix rank
-- [ ] Show dimension of null space
-- [ ] Indicate trivial motions (rotation/translation)
+- [x] Add "Rigidity" tab to matrix display panel
+- [x] Display rigidity matrix with proper labeling
+- [x] Show matrix rank
+- [x] Show dimension of null space
+- [x] Indicate trivial motions (rotation/translation)
 
 ---
 
@@ -78,10 +78,10 @@
 
 ### 3.1 DOF Computation
 
-- [ ] Implement `computeTrivialDOF(dimension)` - returns d(d+1)/2
-- [ ] Implement `computeInternalDOF(rank, vertices, dimension)` 
+- [x] Implement `computeTrivialDOF(dimension)` - returns d(d+1)/2
+- [x] Implement `computeInternalDOF(rank, vertices, dimension)` 
   - Formula: d|V| - trivial - rank(R)
-- [ ] Add DOF display to UI
+- [x] Add DOF display to UI
 
 ### 3.2 DOF Visualization
 
@@ -348,7 +348,7 @@
 ## Quick Wins (< 1 hour each)
 
 - [ ] Add reset button to return to initial positions
-- [ ] Display edge count and vertex count in header
+- [x] Display edge count and vertex count in header
 - [ ] Add link to README mathematical background from app
 - [ ] Show transformation name during playback
 - [ ] Add keyboard shortcut: Space for play/pause
