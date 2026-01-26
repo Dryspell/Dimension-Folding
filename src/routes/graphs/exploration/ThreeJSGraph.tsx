@@ -1,5 +1,5 @@
 // ThreeJSGraph.tsx
-import { onMount, createSignal, Setter, createEffect, onCleanup } from "solid-js";
+import { onMount, createSignal, Setter, createEffect, onCleanup, createMemo, For, Show } from "solid-js";
 import Timeline from "./Timeline";
 import * as THREE from "three";
 import Graph from "graphology";
@@ -12,12 +12,23 @@ import {
   populateGraphScene,
   updateEdges,
   updateSpheresAndIntersections,
+  computeTransformationArcs,
+  createArcVisualization,
+  createArcArrow,
+  interpolateArc,
+  SphereArc,
 } from "./threeUtils";
 import { updateCoordinates } from "./matrixUtils";
+import { 
+  computeFoldingTransformations,
+  FoldingTransformation,
+} from "./dimensionFolding";
 import { Button } from "~/components/ui/button";
 import { Switch, SwitchControl, SwitchLabel } from "~/components/ui/switch";
 import { Slider } from "~/components/ui/slider";
 import { Card } from "~/components/ui/card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
+import { Badge } from "~/components/ui/badge";
 
 interface ThreeJSGraphProps {
   graph: Graph;
@@ -26,33 +37,6 @@ interface ThreeJSGraphProps {
   setCoordinates: Setter<{
     [key: string]: [number, number, number];
   }>;
-}
-
-/**
- * Computes the position of a node at a given transformation index and interpolation factor.
- * This is a pure function that doesn't mutate any state.
- */
-function computeNodePosition(
-  originalPosition: THREE.Vector3,
-  transformations: THREE.Matrix4[],
-  transformIndex: number,
-  interpolationFactor: number
-): THREE.Vector3 {
-  const position = originalPosition.clone();
-
-  // Apply all completed transformations
-  for (let i = 0; i < transformIndex; i++) {
-    position.applyMatrix4(transformations[i]);
-  }
-
-  // Apply partial current transformation if we're mid-step
-  if (transformIndex < transformations.length && interpolationFactor > 0) {
-    const preTransform = position.clone();
-    const postTransform = position.clone().applyMatrix4(transformations[transformIndex]);
-    position.lerpVectors(preTransform, postTransform, interpolationFactor);
-  }
-
-  return position;
 }
 
 export default function ThreeJSGraph(props: ThreeJSGraphProps) {
@@ -69,12 +53,16 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
   } | null>(null);
   const [showGrid, setShowGrid] = createSignal(false);
 
-  // Playback state
-  const [isPlaying, setIsPlaying] = createSignal(false);
-  const [playbackSpeed, setPlaybackSpeed] = createSignal(1); // Always positive
-  const [playbackDirection, setPlaybackDirection] = createSignal<1 | -1>(1); // 1 = forward, -1 = reverse
-  const [currentTransformationIndex, setCurrentTransformationIndex] = createSignal(0);
+  // Transformation-based playback state
+  const [transformations, setTransformations] = createSignal<FoldingTransformation[]>([]);
+  const [currentTransformIndex, setCurrentTransformIndex] = createSignal(0);
   const [interpolationFactor, setInterpolationFactor] = createSignal(0);
+  const [isPlaying, setIsPlaying] = createSignal(false);
+  const [playbackSpeed, setPlaybackSpeed] = createSignal(1);
+  const [playbackDirection, setPlaybackDirection] = createSignal<1 | -1>(1);
+
+  // Selected transformation for inspection
+  const [selectedTransformIndex, setSelectedTransformIndex] = createSignal<number | null>(null);
 
   // Visualization toggles
   const [showSpheres, setShowSpheres] = createSignal(true);
@@ -85,29 +73,11 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
   const circles: THREE.Mesh[] = [];
   const intersectionPoints: THREE.Mesh[] = [];
 
-  // Define the transformations sequence with names
-  // TODO: These should be configurable or derived from linkage constraints
-  const transformationDefs = [
-    { name: "Rotate Y (45°)", matrix: new THREE.Matrix4().makeRotationY(Math.PI / 4) },
-    { name: "Scale (1.5×)", matrix: new THREE.Matrix4().makeScale(1.5, 1.5, 1.5) },
-    { name: "Rotate Z (45°)", matrix: new THREE.Matrix4().makeRotationZ(Math.PI / 4) },
-    { name: "Translate X (+1)", matrix: new THREE.Matrix4().makeTranslation(1, 0, 0) },
-  ];
-  const transformations = transformationDefs.map((t) => t.matrix);
-  const transformationNames = transformationDefs.map((t) => t.name);
-
-  // Current transformation name for display
-  const currentTransformName = () => {
-    const idx = currentTransformationIndex();
-    const factor = interpolationFactor();
-    if (idx >= transformationNames.length) {
-      return "Complete";
-    }
-    if (idx === 0 && factor === 0) {
-      return "Initial";
-    }
-    return transformationNames[idx];
-  };
+  // Arc visualization for transformations
+  const arcLines: THREE.Line[] = [];
+  const arcArrows: THREE.ArrowHelper[] = [];
+  // Map of nodeLabel -> arc for the current transformation
+  const [currentArcs, setCurrentArcs] = createSignal<Map<string, SphereArc>>(new Map());
 
   // Store ORIGINAL positions (never mutated after initialization)
   const originalPositions: THREE.Vector3[] = [];
@@ -122,38 +92,111 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
   const scene = new THREE.Scene();
   scene.rotation.x = -Math.PI / 2; // Rotate so Z-axis is up
 
-  // Effect to update sphere visibility
-  createEffect(() => {
-    if (!containerRef || !spheres.length) return;
-    spheres.forEach((sphere) => (sphere.visible = showSpheres()));
+  // Derived state
+  const hasTransformations = createMemo(() => transformations().length > 0);
+  const transformationCount = createMemo(() => transformations().length);
+  
+  const currentTransformation = createMemo(() => {
+    const t = transformations();
+    const idx = currentTransformIndex();
+    if (t.length === 0 || idx >= t.length) return null;
+    return t[idx];
   });
 
-  // Effect to update intersection visibility
+  const currentTransformName = createMemo(() => {
+    const t = currentTransformation();
+    if (!t) return "Initial";
+    const factor = interpolationFactor();
+    if (factor === 0) return t.name + " (start)";
+    if (factor >= 0.99) return t.name + " (end)";
+    return t.name;
+  });
+
+  // Effect to update sphere visibility - runs whenever showSpheres changes
   createEffect(() => {
-    if (!containerRef || !(circles.length || intersectionPoints.length)) return;
-    circles.forEach((circle) => (circle.visible = showIntersections()));
-    intersectionPoints.forEach((point) => (point.visible = showIntersections()));
+    const visible = showSpheres();
+    // Update all spheres in the array
+    for (const sphere of spheres) {
+      sphere.visible = visible;
+    }
+  });
+
+  // Effect to update intersection visibility - runs whenever showIntersections changes
+  createEffect(() => {
+    const visible = showIntersections();
+    // Update all circles and intersection points
+    for (const circle of circles) {
+      circle.visible = visible;
+    }
+    for (const point of intersectionPoints) {
+      point.visible = visible;
+    }
   });
 
   /**
-   * Updates all node positions based on current transformation state.
-   * This is the single source of truth for node positions.
+   * Get the initial positions from meshes as a label->position map.
+   */
+  function getInitialPositions(): { [label: string]: [number, number, number] } {
+    const positions: { [label: string]: [number, number, number] } = {};
+    props.graph.forEachNode((nodeId, attr) => {
+      const label = attr.label as string;
+      const mesh = nodeMeshMap[nodeId];
+      if (mesh) {
+        const orig = originalPositions[nodeMeshes.indexOf(mesh)];
+        if (orig) {
+          positions[label] = [orig.x, orig.y, orig.z];
+        }
+      }
+    });
+    return positions;
+  }
+
+  /**
+   * Updates all node positions by interpolating within current transformation.
    */
   function updateNodePositions() {
-    const transformIndex = currentTransformationIndex();
+    const t = transformations();
+    const idx = currentTransformIndex();
     const factor = interpolationFactor();
+    const arcs = currentArcs();
 
-    nodeMeshes.forEach((mesh, i) => {
-      const newPosition = computeNodePosition(
-        originalPositions[i],
-        transformations,
-        transformIndex,
-        factor
-      );
-      mesh.position.copy(newPosition);
-      // Update userData for hover display
-      mesh.userData.coordinates = [newPosition.x, newPosition.y, newPosition.z];
-    });
+    // If no transformations, use original positions
+    if (t.length === 0) {
+      nodeMeshes.forEach((mesh, i) => {
+        mesh.position.copy(originalPositions[i]);
+        mesh.userData.coordinates = [originalPositions[i].x, originalPositions[i].y, originalPositions[i].z];
+      });
+    } else if (idx < t.length) {
+      // Interpolate between start and end of current transformation
+      const transform = t[idx];
+
+      props.graph.forEachNode((nodeId, attr) => {
+        const label = attr.label as string;
+        const mesh = nodeMeshMap[nodeId];
+        if (!mesh) return;
+
+        const p1 = transform.startPositions[label];
+        const p2 = transform.endPositions[label];
+        if (!p1 || !p2) return;
+
+        // Check if this node has an arc - use arc interpolation for constraint-preserving motion
+        const arc = arcs.get(label);
+        if (arc) {
+          // Interpolate along the sphere arc (constraint-preserving)
+          const pos = interpolateArc(arc, factor);
+          mesh.position.copy(pos);
+          mesh.userData.coordinates = [pos.x, pos.y, pos.z];
+        } else {
+          // Linear interpolation for nodes without arcs (stationary or rigid motion)
+          const x = p1[0] + (p2[0] - p1[0]) * factor;
+          const y = p1[1] + (p2[1] - p1[1]) * factor;
+          const z = p1[2] + (p2[2] - p1[2]) * factor;
+
+          mesh.position.set(x, y, z);
+          mesh.userData.coordinates = [x, y, z];
+        }
+      });
+    }
 
     // Update dependent visualizations
     props.setCoordinates(updateCoordinates(props.graph, nodeMeshMap));
@@ -166,6 +209,124 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
       circles,
       intersectionPoints
     );
+  }
+
+  /**
+   * Generate folding transformations for target dimension.
+   */
+  /**
+   * Clear existing arc visualizations.
+   */
+  function clearArcs() {
+    arcLines.forEach(line => {
+      scene.remove(line);
+      line.geometry.dispose();
+      (line.material as THREE.Material).dispose();
+    });
+    arcLines.length = 0;
+    
+    arcArrows.forEach(arrow => {
+      scene.remove(arrow);
+    });
+    arcArrows.length = 0;
+    
+    setCurrentArcs(new Map());
+  }
+
+  /**
+   * Draw arcs for a specific transformation.
+   */
+  function drawTransformationArcs(transform: FoldingTransformation) {
+    clearArcs();
+    
+    // Compute arcs for this transformation
+    const arcData = computeTransformationArcs(
+      props.graph,
+      nodeMeshMap,
+      transform.startPositions,
+      transform.endPositions
+    );
+    
+    // Create arc visualizations
+    const arcMap = new Map<string, SphereArc>();
+    
+    arcData.forEach(({ nodeLabel, arc }) => {
+      // Only draw arc if the angle is significant
+      if (arc.angle > 0.01) {
+        const line = createArcVisualization(scene, arc, 0xff6600, 48);
+        arcLines.push(line);
+        
+        const arrow = createArcArrow(scene, arc, 0xff6600);
+        arcArrows.push(arrow);
+        
+        arcMap.set(nodeLabel, arc);
+      }
+    });
+    
+    setCurrentArcs(arcMap);
+  }
+
+  function generateTransformations(targetDimension: 1 | 2) {
+    const startPositions = getInitialPositions();
+    const result = computeFoldingTransformations(props.graph, startPositions, targetDimension);
+
+    if (result.transformations.length === 0) {
+      console.log("No transformations generated:", result.explanation);
+      return;
+    }
+
+    setTransformations(result.transformations);
+    setCurrentTransformIndex(0);
+    setInterpolationFactor(0);
+    setSelectedTransformIndex(null);
+    setPlaybackDirection(1);
+    
+    // Draw arcs for the first transformation
+    if (result.transformations.length > 0) {
+      drawTransformationArcs(result.transformations[0]);
+    }
+    
+    setIsPlaying(true);
+    updateNodePositions();
+  }
+
+  /**
+   * Clear transformations and reset to original.
+   */
+  function clearTransformations() {
+    clearArcs();
+    setTransformations([]);
+    setCurrentTransformIndex(0);
+    setInterpolationFactor(0);
+    setSelectedTransformIndex(null);
+    setIsPlaying(false);
+
+    nodeMeshes.forEach((mesh, i) => {
+      mesh.position.copy(originalPositions[i]);
+      mesh.userData.coordinates = [originalPositions[i].x, originalPositions[i].y, originalPositions[i].z];
+    });
+
+    props.setCoordinates(updateCoordinates(props.graph, nodeMeshMap));
+    updateEdges(props.graph, nodeMeshMap, edges);
+    updateSpheresAndIntersections(scene, props.graph, nodeMeshMap, spheres, circles, intersectionPoints);
+  }
+
+  /**
+   * Jump to a specific transformation for inspection.
+   */
+  function inspectTransformation(index: number, showEnd: boolean = false) {
+    setIsPlaying(false);
+    setCurrentTransformIndex(index);
+    setInterpolationFactor(showEnd ? 1 : 0);
+    setSelectedTransformIndex(index);
+    
+    // Draw arcs for the selected transformation
+    const t = transformations();
+    if (index < t.length) {
+      drawTransformationArcs(t[index]);
+    }
+    
+    updateNodePositions();
   }
 
   onMount(() => {
@@ -182,32 +343,12 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
     addAxesHelper(scene);
     addGridHelpers(showGrid, scene);
 
-    // Populate scene and capture original positions
-    populateGraphScene(
-      props.graph,
-      originalPositions,
-      nodeMeshes,
-      nodeMeshMap,
-      scene
-    );
-
-    // Draw edges (only once, not in populateGraphScene)
+    populateGraphScene(props.graph, originalPositions, nodeMeshes, nodeMeshMap, scene);
     drawEdges(props.graph, nodeMeshMap, scene, edges);
+    createSpheresAndIntersections(props.graph, nodeMeshMap, scene, spheres, circles, intersectionPoints);
 
-    // Create constraint visualization
-    createSpheresAndIntersections(
-      props.graph,
-      nodeMeshMap,
-      scene,
-      spheres,
-      circles,
-      intersectionPoints
-    );
-
-    // Initial coordinate sync
     props.setCoordinates(updateCoordinates(props.graph, nodeMeshMap));
 
-    // Mouse tracking for hover
     const onMouseMove = (event: MouseEvent) => {
       const rect = rendererInstance.domElement.getBoundingClientRect();
       mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -219,31 +360,29 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
     const animate = () => {
       controls.update();
 
-      if (isPlaying()) {
+      // Handle playback
+      if (isPlaying() && transformations().length > 0) {
+        const t = transformations();
         const direction = playbackDirection();
         const speed = playbackSpeed();
-        const stepSize = direction * speed * 0.02;
+        const stepSize = direction * speed * 0.015;
 
         let newFactor = interpolationFactor() + stepSize;
-        let newIndex = currentTransformationIndex();
+        let newIndex = currentTransformIndex();
+        const oldIndex = currentTransformIndex();
 
-        // Handle factor overflow/underflow
         if (newFactor >= 1) {
-          // Completed current transformation, move to next
           newIndex++;
-          if (newIndex >= transformations.length) {
-            // Reached end of all transformations
-            newIndex = transformations.length - 1;
+          if (newIndex >= t.length) {
+            newIndex = t.length - 1;
             newFactor = 1;
             setIsPlaying(false);
           } else {
             newFactor = 0;
           }
         } else if (newFactor <= 0) {
-          // Going backwards, move to previous transformation
           newIndex--;
           if (newIndex < 0) {
-            // Reached beginning
             newIndex = 0;
             newFactor = 0;
             setIsPlaying(false);
@@ -252,7 +391,12 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
           }
         }
 
-        setCurrentTransformationIndex(newIndex);
+        // Update arcs if transformation index changed
+        if (newIndex !== oldIndex && newIndex < t.length) {
+          drawTransformationArcs(t[newIndex]);
+        }
+
+        setCurrentTransformIndex(newIndex);
         setInterpolationFactor(Math.max(0, Math.min(1, newFactor)));
         updateNodePositions();
       }
@@ -273,7 +417,6 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
 
     animate();
 
-    // Cleanup
     onCleanup(() => {
       window.removeEventListener("mousemove", onMouseMove);
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
@@ -283,8 +426,8 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
   });
 
   const handlePlayPause = () => {
-    const wasPlaying = isPlaying();
-    setIsPlaying(!wasPlaying);
+    if (transformations().length === 0) return;
+    setIsPlaying(!isPlaying());
   };
 
   const handleDirectionToggle = () => {
@@ -302,31 +445,22 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
     _renderer: THREE.WebGLRenderer,
     _camera: THREE.PerspectiveCamera
   ) => {
+    if (transformations().length === 0) return;
     setIsPlaying(false);
-    setCurrentTransformationIndex(index);
+    setCurrentTransformIndex(index);
     setInterpolationFactor(factor);
     updateNodePositions();
   };
 
-  /**
-   * Reset to initial configuration (transformation index 0, factor 0).
-   */
   const handleReset = () => {
     setIsPlaying(false);
-    setCurrentTransformationIndex(0);
+    setCurrentTransformIndex(0);
     setInterpolationFactor(0);
     updateNodePositions();
   };
 
-  /**
-   * Handle keyboard shortcuts.
-   */
   const handleKeyDown = (e: KeyboardEvent) => {
-    // Only handle if not in an input field
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-      return;
-    }
-
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     switch (e.code) {
       case "Space":
         e.preventDefault();
@@ -347,7 +481,6 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
     }
   };
 
-  // Add keyboard listener
   if (typeof window !== "undefined") {
     window.addEventListener("keydown", handleKeyDown);
     onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
@@ -372,143 +505,208 @@ export default function ThreeJSGraph(props: ThreeJSGraphProps) {
       )}
 
       {/* Controls panel */}
-      <div class="absolute top-4 right-4 flex flex-col gap-3 rounded-lg border bg-card/95 backdrop-blur p-3 shadow-lg">
-        <Switch checked={showGrid()} onChange={setShowGrid}>
-          <SwitchControl />
-          <SwitchLabel class="text-sm">Grid</SwitchLabel>
-        </Switch>
-        <Switch checked={showSpheres()} onChange={setShowSpheres}>
-          <SwitchControl />
-          <SwitchLabel class="text-sm">Spheres</SwitchLabel>
-        </Switch>
-        <Switch checked={showIntersections()} onChange={setShowIntersections}>
-          <SwitchControl />
-          <SwitchLabel class="text-sm">Intersections</SwitchLabel>
-        </Switch>
+      <div class="absolute top-4 right-4 rounded-lg border bg-card/95 backdrop-blur shadow-lg overflow-hidden min-w-[180px]">
+        <div class="px-3 py-2 border-b bg-muted/50">
+          <span class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Visibility</span>
+        </div>
+        <div class="p-3 space-y-3">
+          <Switch checked={showGrid()} onChange={setShowGrid}>
+            <SwitchControl />
+            <SwitchLabel class="text-sm flex items-center gap-2 cursor-pointer">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="size-4 text-muted-foreground">
+                <path fill-rule="evenodd" d="M4.25 2A2.25 2.25 0 002 4.25v11.5A2.25 2.25 0 004.25 18h11.5A2.25 2.25 0 0018 15.75V4.25A2.25 2.25 0 0015.75 2H4.25zM3.5 8.25v-4A.75.75 0 014.25 3.5h4V8.25H3.5zm0 1.5v2.5h4.75v-2.5H3.5zm0 4v2a.75.75 0 00.75.75h4v-2.75H3.5zm6.25 2.75h2.5v-2.75h-2.5v2.75zm4 0h2a.75.75 0 00.75-.75v-2h-2.75v2.75zm2.75-4.25h-2.75v-2.5h2.75v2.5zm0-4h-2.75V3.5h2a.75.75 0 01.75.75v4zm-4.25-4.75h-2.5V8.25h2.5V3.5zm0 6.25h-2.5v2.5h2.5v-2.5z" clip-rule="evenodd" />
+              </svg>
+              Grid
+            </SwitchLabel>
+          </Switch>
+          <Switch checked={showSpheres()} onChange={setShowSpheres}>
+            <SwitchControl />
+            <SwitchLabel class="text-sm flex items-center gap-2 cursor-pointer">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="size-4 text-blue-400">
+                <path d="M10 1a9 9 0 100 18 9 9 0 000-18zM3 10a7 7 0 1114 0 7 7 0 01-14 0z" />
+              </svg>
+              Spheres
+            </SwitchLabel>
+          </Switch>
+          <Switch checked={showIntersections()} onChange={setShowIntersections}>
+            <SwitchControl />
+            <SwitchLabel class="text-sm flex items-center gap-2 cursor-pointer">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="size-4 text-cyan-400">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-1-9a1 1 0 112 0v4a1 1 0 11-2 0v-4zm1-5a1 1 0 100 2 1 1 0 000-2z" clip-rule="evenodd" />
+              </svg>
+              Intersections
+            </SwitchLabel>
+          </Switch>
+        </div>
       </div>
 
-      {/* Playback controls */}
+      {/* Folding controls */}
       <div class="border-t p-4">
-        <div class="flex items-center gap-3 mb-3">
-          {/* Reset button */}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleReset}
-            title="Reset to initial position (R)"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              class="size-4"
-            >
-              <path
-                fill-rule="evenodd"
-                d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z"
-                clip-rule="evenodd"
-              />
-            </svg>
-          </Button>
-          {/* Play/Pause button */}
-          <Button
-            size="sm"
-            variant={isPlaying() ? "secondary" : "default"}
-            onClick={handlePlayPause}
-            title="Play/Pause (Space)"
-          >
-            {isPlaying() ? (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                class="size-4"
+        <div class="flex items-center gap-3">
+          <span class="text-sm font-medium text-muted-foreground">Fold to:</span>
+          <Tooltip>
+            <TooltipTrigger>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => generateTransformations(2)}
+                disabled={isPlaying()}
               >
-                <path
-                  fill-rule="evenodd"
-                  d="M6.75 5.25a.75.75 0 01.75-.75H9a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H7.5a.75.75 0 01-.75-.75V5.25zm7.5 0A.75.75 0 0115 4.5h1.5a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H15a.75.75 0 01-.75-.75V5.25z"
-                  clip-rule="evenodd"
-                />
-              </svg>
-            ) : (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                class="size-4"
+                2D (Plane)
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Generate transformations to fold to a 2D plane</p>
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => generateTransformations(1)}
+                disabled={isPlaying()}
               >
-                <path
-                  fill-rule="evenodd"
-                  d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z"
-                  clip-rule="evenodd"
-                />
-              </svg>
-            )}
-          </Button>
-          <Button size="sm" variant="outline" onClick={handleDirectionToggle}>
-            {playbackDirection() > 0 ? (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                class="size-4"
-              >
-                <path
-                  fill-rule="evenodd"
-                  d="M13.28 11.47a.75.75 0 010 1.06l-7.5 7.5a.75.75 0 01-1.06-1.06L11.69 12 4.72 5.03a.75.75 0 011.06-1.06l7.5 7.5z"
-                  clip-rule="evenodd"
-                />
-                <path
-                  fill-rule="evenodd"
-                  d="M19.28 11.47a.75.75 0 010 1.06l-7.5 7.5a.75.75 0 11-1.06-1.06L17.69 12l-6.97-6.97a.75.75 0 011.06-1.06l7.5 7.5z"
-                  clip-rule="evenodd"
-                />
-              </svg>
-            ) : (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                class="size-4"
-              >
-                <path
-                  fill-rule="evenodd"
-                  d="M10.72 11.47a.75.75 0 000 1.06l7.5 7.5a.75.75 0 101.06-1.06L12.31 12l6.97-6.97a.75.75 0 00-1.06-1.06l-7.5 7.5z"
-                  clip-rule="evenodd"
-                />
-                <path
-                  fill-rule="evenodd"
-                  d="M4.72 11.47a.75.75 0 000 1.06l7.5 7.5a.75.75 0 101.06-1.06L6.31 12l6.97-6.97a.75.75 0 00-1.06-1.06l-7.5 7.5z"
-                  clip-rule="evenodd"
-                />
-              </svg>
-            )}
-          </Button>
-          {/* Transformation name display */}
-          <div class="flex-1 px-3 py-1.5 rounded-md bg-muted text-sm font-medium text-center min-w-[120px]">
-            {currentTransformName()}
-          </div>
-          <div class="w-32">
-            <Slider
-              minValue={0.1}
-              maxValue={2}
-              step={0.1}
-              value={[playbackSpeed()]}
-              onChange={handleSpeedChange}
-              label="Speed"
-            />
+                1D (Line)
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Generate transformations to fold to a 1D line</p>
+            </TooltipContent>
+          </Tooltip>
+          <Show when={hasTransformations()}>
+            <Button size="sm" variant="ghost" onClick={clearTransformations} disabled={isPlaying()}>
+              Clear
+            </Button>
+            <span class="text-xs text-muted-foreground">
+              {transformationCount()} transformation{transformationCount() > 1 ? "s" : ""}
+            </span>
+          </Show>
+        </div>
+      </div>
+
+      {/* Transformation list for inspection */}
+      <Show when={hasTransformations()}>
+        <div class="border-t p-4">
+          <h4 class="text-sm font-medium mb-3">Transformations</h4>
+          <div class="space-y-2">
+            <For each={transformations()}>
+              {(transform, index) => (
+                <div
+                  class={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                    selectedTransformIndex() === index() 
+                      ? "border-primary bg-primary/5" 
+                      : "border-border hover:border-primary/50"
+                  }`}
+                  onClick={() => inspectTransformation(index())}
+                >
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="font-medium text-sm">{transform.name}</span>
+                    <Badge variant={transform.type === "rigid" ? "secondary" : "default"}>
+                      {transform.type === "rigid" ? "Rigid" : "Internal DOF"}
+                    </Badge>
+                  </div>
+                  <p class="text-xs text-muted-foreground">{transform.description}</p>
+                  <div class="flex gap-2 mt-2">
+                    <Badge variant="outline" class="text-xs">
+                      {transform.startDimension}D → {transform.endDimension}D
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      class="h-5 px-2 text-xs"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        inspectTransformation(index(), false);
+                      }}
+                    >
+                      Start
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      class="h-5 px-2 text-xs"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        inspectTransformation(index(), true);
+                      }}
+                    >
+                      End
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </For>
           </div>
         </div>
-        <Timeline
-          transformations={transformations.length}
-          currentIndex={currentTransformationIndex}
-          interpolationFactor={interpolationFactor}
-          scene={scene}
-          renderer={renderer()}
-          camera={camera()}
-          onScrub={handleScrub}
-        />
-      </div>
+      </Show>
+
+      {/* Playback controls */}
+      <Show when={hasTransformations()}>
+        <div class="border-t p-4">
+          <div class="flex items-center gap-3 mb-3">
+            <Button size="sm" variant="outline" onClick={handleReset} title="Reset (R)">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-4">
+                <path fill-rule="evenodd" d="M4.755 10.059a7.5 7.5 0 0112.548-3.364l1.903 1.903h-3.183a.75.75 0 100 1.5h4.992a.75.75 0 00.75-.75V4.356a.75.75 0 00-1.5 0v3.18l-1.9-1.9A9 9 0 003.306 9.67a.75.75 0 101.45.388zm15.408 3.352a.75.75 0 00-.919.53 7.5 7.5 0 01-12.548 3.364l-1.902-1.903h3.183a.75.75 0 000-1.5H2.984a.75.75 0 00-.75.75v4.992a.75.75 0 001.5 0v-3.18l1.9 1.9a9 9 0 0015.059-4.035.75.75 0 00-.53-.918z" clip-rule="evenodd" />
+              </svg>
+            </Button>
+            <Button size="sm" variant={isPlaying() ? "secondary" : "default"} onClick={handlePlayPause} title="Play/Pause (Space)">
+              {isPlaying() ? (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-4">
+                  <path fill-rule="evenodd" d="M6.75 5.25a.75.75 0 01.75-.75H9a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H7.5a.75.75 0 01-.75-.75V5.25zm7.5 0A.75.75 0 0115 4.5h1.5a.75.75 0 01.75.75v13.5a.75.75 0 01-.75.75H15a.75.75 0 01-.75-.75V5.25z" clip-rule="evenodd" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-4">
+                  <path fill-rule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clip-rule="evenodd" />
+                </svg>
+              )}
+            </Button>
+            <Button size="sm" variant="outline" onClick={handleDirectionToggle}>
+              {playbackDirection() > 0 ? (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-4">
+                  <path fill-rule="evenodd" d="M13.28 11.47a.75.75 0 010 1.06l-7.5 7.5a.75.75 0 01-1.06-1.06L11.69 12 4.72 5.03a.75.75 0 011.06-1.06l7.5 7.5z" clip-rule="evenodd" />
+                  <path fill-rule="evenodd" d="M19.28 11.47a.75.75 0 010 1.06l-7.5 7.5a.75.75 0 11-1.06-1.06L17.69 12l-6.97-6.97a.75.75 0 011.06-1.06l7.5 7.5z" clip-rule="evenodd" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-4">
+                  <path fill-rule="evenodd" d="M10.72 11.47a.75.75 0 000 1.06l7.5 7.5a.75.75 0 101.06-1.06L12.31 12l6.97-6.97a.75.75 0 00-1.06-1.06l-7.5 7.5z" clip-rule="evenodd" />
+                  <path fill-rule="evenodd" d="M4.72 11.47a.75.75 0 000 1.06l7.5 7.5a.75.75 0 101.06-1.06L6.31 12l6.97-6.97a.75.75 0 00-1.06-1.06l-7.5 7.5z" clip-rule="evenodd" />
+                </svg>
+              )}
+            </Button>
+            <div class="flex-1 px-3 py-1.5 rounded-md bg-muted text-sm font-medium text-center min-w-[150px]">
+              {currentTransformName()}
+            </div>
+            <div class="w-32">
+              <Slider
+                minValue={0.1}
+                maxValue={2}
+                step={0.1}
+                value={[playbackSpeed()]}
+                onChange={handleSpeedChange}
+                label="Speed"
+              />
+            </div>
+          </div>
+          <Timeline
+            transformations={transformationCount()}
+            keyframeNames={transformations().map(t => t.name)}
+            currentIndex={currentTransformIndex}
+            interpolationFactor={interpolationFactor}
+            scene={scene}
+            renderer={renderer()}
+            camera={camera()}
+            onScrub={handleScrub}
+          />
+        </div>
+      </Show>
+
+      {/* Empty state */}
+      <Show when={!hasTransformations()}>
+        <div class="border-t p-4 text-center text-sm text-muted-foreground">
+          Click "2D (Plane)" or "1D (Line)" to generate folding transformations
+        </div>
+      </Show>
     </Card>
   );
 }

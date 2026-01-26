@@ -1,4 +1,4 @@
-import { Accessor, createMemo, createSignal, createEffect, Show } from "solid-js";
+import { Accessor, createMemo, createSignal, createEffect, Show, For } from "solid-js";
 import { Title } from "@solidjs/meta";
 import {
   createAdjacencyMatrix,
@@ -9,6 +9,7 @@ import {
   computeInternalDOF,
 } from "./matrixUtils";
 import { analyzeDimensionFolding, getDimensionDisplayString, DimensionAnalysis } from "./dimensionFolding";
+import { analyzeConfigSpace, ConfigSpaceAnalysis } from "./threeUtils";
 import MatrixTable from "./MatrixTable";
 import ThreeJSGraph from "./ThreeJSGraph";
 import { GRAPH_REGISTRY, FrameworkGraph, GraphInfo } from "./graphUtils";
@@ -57,6 +58,118 @@ interface RigidityAnalysis {
   vertices: number;
   edges: number;
   dimension: number;
+}
+
+/**
+ * Configuration Space panel - explains the mathematical structure
+ */
+function ConfigSpacePanel(props: {
+  graph: Accessor<FrameworkGraph>;
+}) {
+  const analysis = createMemo<ConfigSpaceAnalysis>(() => {
+    return analyzeConfigSpace(props.graph());
+  });
+
+  return (
+    <div class="space-y-6">
+      {/* Overview */}
+      <div>
+        <h4 class="font-medium mb-2">Configuration Space Structure</h4>
+        <pre class="text-sm bg-muted/50 p-3 rounded-md whitespace-pre-wrap font-mono">
+          {analysis().structureDescription}
+        </pre>
+      </div>
+
+      {/* DOF Summary */}
+      <div class="grid grid-cols-3 gap-4">
+        <div class="rounded-lg border p-3">
+          <div class="text-xs text-muted-foreground uppercase tracking-wide">Total DOF</div>
+          <div class="text-2xl font-bold">{analysis().totalDOF}</div>
+          <div class="text-xs text-muted-foreground">
+            3 × {props.graph().order} vertices
+          </div>
+        </div>
+        <div class="rounded-lg border p-3">
+          <div class="text-xs text-muted-foreground uppercase tracking-wide">Trivial DOF</div>
+          <div class="text-2xl font-bold">{analysis().trivialDOF}</div>
+          <div class="text-xs text-muted-foreground">
+            rigid motions
+          </div>
+        </div>
+        <div class="rounded-lg border p-3">
+          <div class="text-xs text-muted-foreground uppercase tracking-wide">Internal DOF</div>
+          <div class="text-2xl font-bold">{analysis().internalDOF}</div>
+          <div class="text-xs text-muted-foreground">
+            flex modes
+          </div>
+        </div>
+      </div>
+
+      {/* Per-node analysis */}
+      <div>
+        <h4 class="font-medium mb-2">Per-Node Configuration Space</h4>
+        <div class="space-y-2">
+          <For each={analysis().nodeAnalysis}>
+            {(node) => (
+              <div class="rounded-lg border p-3">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="font-medium">{node.nodeLabel}</span>
+                  <Badge variant="outline" class="text-xs">
+                    degree {node.degree}
+                  </Badge>
+                  <Badge 
+                    variant={node.dimension === 1 ? "default" : "secondary"} 
+                    class="text-xs"
+                  >
+                    {node.dimension === 0 ? "point" : 
+                     node.dimension === 1 ? "circle S¹" : 
+                     node.dimension === 2 ? "sphere S²" : "ℝ³"}
+                  </Badge>
+                </div>
+                <p class="text-sm text-muted-foreground">{node.constraintDescription}</p>
+                <p class="text-sm font-mono mt-1">{node.configSpaceDescription}</p>
+              </div>
+            )}
+          </For>
+        </div>
+      </div>
+
+      {/* Special Points explanation */}
+      <div>
+        <h4 class="font-medium mb-2">Special Points (Dimension Folding)</h4>
+        <pre class="text-sm bg-muted/50 p-3 rounded-md whitespace-pre-wrap font-mono">
+          {analysis().specialPointsDescription}
+        </pre>
+      </div>
+
+      {/* Visualization key */}
+      <div>
+        <h4 class="font-medium mb-2">Visualization Key</h4>
+        <div class="space-y-2 text-sm">
+          <div class="flex items-center gap-3">
+            <div class="w-4 h-4 rounded-full bg-blue-400/30 border border-blue-400"></div>
+            <span>Blue wireframe spheres: distance constraints</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="w-4 h-1 bg-cyan-400 rounded"></div>
+            <span>Cyan circles: configuration space (intersection of constraint spheres)</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="w-4 h-1 bg-green-400 rounded"></div>
+            <span>Green circles: other sphere intersections</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="w-4 h-1 bg-orange-500 rounded"></div>
+            <span>Orange arcs: folding motion paths on constraint spheres</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="w-3 h-3 rounded-full bg-red-500"></div>
+            <span>Red points: triple constraint intersections</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function RigidityPanel(props: {
@@ -412,6 +525,7 @@ export default function GraphPage() {
               <TabsTrigger value="incidence">Incidence</TabsTrigger>
               <TabsTrigger value="coordinates">Coordinates</TabsTrigger>
               <TabsTrigger value="rigidity">Rigidity</TabsTrigger>
+              <TabsTrigger value="configspace">Config Space</TabsTrigger>
             </TabsList>
             <TabsContent value="adjacency">
               <div class="max-w-md">
@@ -449,6 +563,9 @@ export default function GraphPage() {
             </TabsContent>
             <TabsContent value="rigidity">
               <RigidityPanel graph={graph} coordinates={coordinates} dimension={3} />
+            </TabsContent>
+            <TabsContent value="configspace">
+              <ConfigSpacePanel graph={graph} />
             </TabsContent>
           </Tabs>
         </CardContent>

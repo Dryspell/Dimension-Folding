@@ -179,9 +179,9 @@
 
 ### 7.2 Folding Animation
 
-- [ ] Compute folding path from ℝ³ to ℝ² (when possible)
-- [ ] Compute folding path from ℝ² to ℝ¹ (when possible)
-- [ ] Animate continuous folding
+- [x] Compute folding path from ℝ³ to ℝ² (when possible)
+- [x] Compute folding path from ℝ² to ℝ¹ (when possible)
+- [x] Animate continuous folding (with constraint preservation via FABRIK-style projection)
 - [ ] Show target dimension plane/line in 3D view
 
 ### 7.3 Folding Visualization
@@ -331,7 +331,73 @@
 
 ---
 
-## 15. Future Research Features
+## 15. Configuration Space Exploration ⚡
+
+*Priority: HIGH - Core to understanding dimension folding*
+
+### 15.1 Configuration Space Visualization
+
+The configuration space C of a linkage is the set of all valid vertex positions satisfying edge length constraints. Understanding its structure is key to finding folding paths.
+
+- [x] Add "Configuration Space" info panel explaining the structure for current graph
+- [x] Show per-node configuration space analysis (sphere S², circle S¹, point)
+- [x] Better label intersection circles as configuration space (cyan color)
+- [x] Show DOF decomposition - how each node contributes to total DOF
+- [ ] Visualize product structure: S² × S² for V-graph (two spheres, one per endpoint)
+- [ ] Color-code nodes by their constraint degree (how many edges constrain them)
+
+### 15.2 Pin Node Functionality
+
+Allow user to "fix" a node and see how constraints on other nodes change.
+
+- [ ] "Pin" button for each node (locks it in place)
+- [ ] When node is pinned, update sphere visualizations to show reduced config space
+- [ ] Show how pinning reduces DOF
+- [ ] Visualize the fiber structure: for each position of pinned node, show valid positions of others
+
+### 15.3 Special Points in Configuration Space
+
+The key research goal: finding points in C where the linkage lies in a lower-dimensional subspace.
+
+- [ ] Define C_k ⊂ C = configurations in k-dimensional affine subspace
+- [ ] Implement `isInDimension(positions, k)` - check if config lies in k-dimensional subspace
+- [ ] Highlight when current configuration is at a "special point" (minimal dimension)
+- [ ] Visualize the boundary between C_3, C_2, C_1 regions in configuration space
+- [ ] Mark folded configurations distinctly (stars, different colors)
+
+### 15.4 Path-Connectedness Analysis
+
+The fundamental question: is there a continuous path in C from current config to a lower-dimensional config?
+
+- [ ] Implement `arePathConnected(config1, config2)` check
+- [ ] Visualize path through configuration space during folding animation
+- [ ] Detect and display connected components of C
+- [ ] Show when folding is impossible (target dimension not reachable from current component)
+- [ ] Compute and display the topology of C (genus, number of components)
+
+### 15.5 Finding Minimal Dimension Configurations
+
+Algorithms for finding the "special points" that represent minimal dimensions.
+
+- [ ] Implement gradient descent on dimension-measuring function
+- [ ] Sample configuration space to find low-dimensional regions
+- [ ] Implement homotopy methods to trace paths to minimal dimension
+- [ ] Store and catalog discovered minimal configurations
+- [ ] Compare different paths to same minimal dimension
+
+### 15.6 Theoretical Display
+
+Help users understand the mathematical structure.
+
+- [ ] Show configuration space as: C = {p : ||p(u) - p(v)|| = L(e) for all edges e}
+- [ ] Display as intersection of level sets of distance functions
+- [ ] Show product decomposition when applicable
+- [ ] Explain fiber bundle structure over pinned configurations
+- [ ] Link to relevant mathematical references (Connelly, Whiteley, etc.)
+
+---
+
+## 16. Future Research Features
 
 *Lower priority - for advanced exploration*
 

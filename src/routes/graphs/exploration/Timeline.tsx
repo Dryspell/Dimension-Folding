@@ -5,7 +5,10 @@ import { cn } from "~/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "~/components/ui/tooltip";
 
 interface TimelineProps {
+  /** Number of transitions (keyframes - 1) */
   transformations: number;
+  /** Names for each keyframe */
+  keyframeNames?: string[];
   currentIndex: Accessor<number>;
   interpolationFactor: Accessor<number>;
   scene: THREE.Scene;
@@ -21,7 +24,8 @@ interface TimelineProps {
 }
 
 export default function Timeline(props: TimelineProps) {
-  const segmentWidth = 100 / props.transformations;
+  const segmentCount = Math.max(1, props.transformations);
+  const segmentWidth = 100 / segmentCount;
   const [isDragging, setIsDragging] = createSignal(false);
   let timelineRef: HTMLDivElement | null = null;
 
@@ -39,24 +43,31 @@ export default function Timeline(props: TimelineProps) {
   const updateScrubPosition = (e: MouseEvent) => {
     if (!timelineRef) return;
 
-    const segmentRect = (e.target as HTMLElement).getBoundingClientRect();
-    const segmentRelativeX = e.clientX - segmentRect.left;
-    const segmentWidthPx = segmentRect.width;
-
     const timelineRect = timelineRef.getBoundingClientRect();
     const timelineRelativeX = e.clientX - timelineRect.left;
-
     const totalProgress = Math.max(0, Math.min(1, timelineRelativeX / timelineRect.width));
 
-    const index = Math.floor(totalProgress * props.transformations);
-    const factor = segmentRelativeX / segmentWidthPx;
+    const rawIndex = totalProgress * segmentCount;
+    const index = Math.min(Math.floor(rawIndex), segmentCount - 1);
+    const factor = rawIndex - index;
 
     props.renderer &&
       props.camera &&
-      props.onScrub(index, factor, props.scene, props.renderer, props.camera);
+      props.onScrub(index, Math.max(0, Math.min(1, factor)), props.scene, props.renderer, props.camera);
   };
 
-  const transformationNames = ["Rotation Y", "Scale", "Rotation Z", "Translate X"];
+  /**
+   * Get the name for a segment (transition between keyframes).
+   */
+  const getSegmentName = (index: number): string => {
+    const names = props.keyframeNames || [];
+    if (names.length > index) {
+      const from = names[index] || `Frame ${index + 1}`;
+      const to = names[index + 1] || `Frame ${index + 2}`;
+      return `${from} → ${to}`;
+    }
+    return `Step ${index + 1}`;
+  };
 
   return (
     <div class="space-y-2">
@@ -68,7 +79,7 @@ export default function Timeline(props: TimelineProps) {
         onMouseUp={handleMouseUp}
         onMouseLeave={() => setIsDragging(false)}
       >
-        <For each={Array.from({ length: props.transformations })}>
+        <For each={Array.from({ length: segmentCount })}>
           {(_, index) => (
             <Tooltip>
               <TooltipTrigger
@@ -89,7 +100,7 @@ export default function Timeline(props: TimelineProps) {
                 )}
               </TooltipTrigger>
               <TooltipContent>
-                <p class="font-medium">{transformationNames[index()] || `Step ${index() + 1}`}</p>
+                <p class="font-medium">{getSegmentName(index())}</p>
               </TooltipContent>
             </Tooltip>
           )}
@@ -99,7 +110,7 @@ export default function Timeline(props: TimelineProps) {
         <div
           class="absolute top-0 left-0 h-full bg-primary/30 pointer-events-none transition-all"
           style={{
-            width: `${((props.currentIndex() + props.interpolationFactor()) / props.transformations) * 100}%`,
+            width: `${((props.currentIndex() + props.interpolationFactor()) / segmentCount) * 100}%`,
           }}
         />
       </div>
@@ -107,10 +118,10 @@ export default function Timeline(props: TimelineProps) {
       {/* Progress info */}
       <div class="flex justify-between text-xs text-muted-foreground font-mono">
         <span>
-          Step {props.currentIndex() + 1}/{props.transformations}
+          Frame {props.currentIndex() + 1}/{segmentCount + 1}
         </span>
         <span>
-          {((props.currentIndex() + props.interpolationFactor()) / props.transformations * 100).toFixed(0)}%
+          {((props.currentIndex() + props.interpolationFactor()) / segmentCount * 100).toFixed(0)}%
         </span>
       </div>
     </div>

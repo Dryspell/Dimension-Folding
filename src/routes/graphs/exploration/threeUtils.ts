@@ -278,6 +278,14 @@ function calculateIntersectionOfTwoCircles(
 
 /**
  * Create spheres and intersection visualizations for constraint display.
+ * 
+ * For each node, we create:
+ * - Spheres centered at each neighbor (showing "where this node could be" given that edge)
+ * - Intersection circles of pairs of these spheres (the configuration space for this node)
+ * 
+ * For a path graph P₃ (A—B—C):
+ * - When processing B: spheres at A and C intersect in a circle = B's configuration space
+ * - This circle is where B can move while preserving edge lengths to both A and C
  */
 export function createSpheresAndIntersections(
   graph: Graph,
@@ -290,8 +298,10 @@ export function createSpheresAndIntersections(
   graph.forEachNode((nodeId) => {
     const nodeMesh = nodeMeshMap[nodeId];
     const neighbors = Array.from(graph.neighbors(nodeId));
+    const nodeLabel = graph.getNodeAttribute(nodeId, "label") as string;
 
     // Create constraint spheres for each neighbor
+    // Each sphere shows: "this node must be at this distance from this neighbor"
     neighbors.forEach((neighborId) => {
       const neighborMesh = nodeMeshMap[neighborId];
       const radius = nodeMesh.position.distanceTo(neighborMesh.position);
@@ -305,12 +315,19 @@ export function createSpheresAndIntersections(
       });
       const sphere = new THREE.Mesh(geometry, material);
       sphere.position.copy(neighborMesh.position);
+      sphere.userData.constraintFor = nodeLabel;
+      sphere.userData.centeredAt = graph.getNodeAttribute(neighborId, "label");
       spheres.push(sphere);
       scene.add(sphere);
     });
 
     // Calculate pairwise sphere intersections (circles)
+    // These circles represent the configuration space of THIS node
+    // given the positions of its neighbors
     const circleData: { center: THREE.Vector3; radius: number; normal: THREE.Vector3 }[] = [];
+    
+    // If a node has exactly 2 neighbors, the intersection circle IS its configuration space
+    const isConfigSpaceCircle = neighbors.length === 2;
 
     for (let i = 0; i < neighbors.length - 1; i++) {
       for (let j = i + 1; j < neighbors.length; j++) {
@@ -325,7 +342,8 @@ export function createSpheresAndIntersections(
             createPoint(scene, result, intersectionPoints);
           } else {
             circleData.push(result);
-            createCircle(scene, result, circles);
+            const circleMesh = createCircle(scene, result, circles, isConfigSpaceCircle);
+            circleMesh.userData.configSpaceOf = nodeLabel;
           }
         }
       }
@@ -407,11 +425,15 @@ export function updateSpheresAndIntersections(
             circleData.push(result);
             if (circles[circleIndex]) {
               const circleMesh = circles[circleIndex];
+              // Preserve config space styling (thicker cyan circles)
+              const isConfigSpace = circleMesh.userData.isConfigSpace === true;
+              const thickness = isConfigSpace ? 0.04 : 0.02;
+              
               circleMesh.position.copy(result.center);
               circleMesh.geometry.dispose();
               circleMesh.geometry = new THREE.RingGeometry(
-                result.radius - 0.02,
-                result.radius + 0.02,
+                result.radius - thickness,
+                result.radius + thickness,
                 64
               );
               circleMesh.lookAt(result.center.clone().add(result.normal));
@@ -479,23 +501,391 @@ function createPoint(
 
 /**
  * Helper to create a circle mesh for intersection visualization.
+ * The color indicates whether this is a configuration space circle (cyan) or other intersection (green).
  */
 function createCircle(
   scene: THREE.Scene,
   { center, radius, normal }: { center: THREE.Vector3; radius: number; normal: THREE.Vector3 },
-  circles: THREE.Mesh[]
+  circles: THREE.Mesh[],
+  isConfigSpace: boolean = false
 ): THREE.Mesh {
-  const geometry = new THREE.RingGeometry(radius - 0.02, radius + 0.02, 64);
+  // Config space circles are thicker and cyan; other intersections are green
+  const thickness = isConfigSpace ? 0.04 : 0.02;
+  const color = isConfigSpace ? 0x00ffff : 0x00ff00;
+  const opacity = isConfigSpace ? 0.7 : 0.5;
+  
+  const geometry = new THREE.RingGeometry(radius - thickness, radius + thickness, 64);
   const material = new THREE.MeshBasicMaterial({
-    color: 0x00ff00,
+    color,
     side: THREE.DoubleSide,
-    opacity: 0.5,
+    opacity,
     transparent: true,
   });
   const circle = new THREE.Mesh(geometry, material);
   circle.position.copy(center);
   circle.lookAt(center.clone().add(normal));
+  circle.userData.isConfigSpace = isConfigSpace;
   circles.push(circle);
   scene.add(circle);
   return circle;
+}
+
+// ============================================================================
+// Configuration Space Analysis
+// ============================================================================
+
+/**
+ * Describes the configuration space structure for a single node.
+ */
+export interface NodeConfigSpace {
+  nodeLabel: string;
+  degree: number;  // Number of edges (constraints)
+  constraintDescription: string;
+  configSpaceDescription: string;
+  dimension: number;  // Dimension of config space for this node (0, 1, or 2)
+}
+
+/**
+ * Describes the overall configuration space structure for a graph.
+ */
+export interface ConfigSpaceAnalysis {
+  totalDOF: number;
+  trivialDOF: number;
+  internalDOF: number;
+  nodeAnalysis: NodeConfigSpace[];
+  structureDescription: string;
+  specialPointsDescription: string;
+}
+
+/**
+ * Analyze the configuration space structure of a graph.
+ * 
+ * For a linkage in 3D:
+ * - A node with 0 edges: config space = ℝ³ (anywhere in space)
+ * - A node with 1 edge: config space = S² (sphere around neighbor)
+ * - A node with 2 edges: config space = S¹ (circle = intersection of two spheres)
+ * - A node with 3+ edges: config space = point(s) or empty
+ */
+export function analyzeConfigSpace(graph: Graph): ConfigSpaceAnalysis {
+  const nodes = graph.nodes();
+  const nodeCount = nodes.length;
+  const edgeCount = graph.size;
+  
+  const nodeAnalysis: NodeConfigSpace[] = [];
+  
+  nodes.forEach((nodeId) => {
+    const label = graph.getNodeAttribute(nodeId, "label") as string;
+    const degree = graph.degree(nodeId);
+    const neighbors = Array.from(graph.neighbors(nodeId));
+    const neighborLabels = neighbors.map(n => graph.getNodeAttribute(n, "label") as string);
+    
+    let constraintDescription = "";
+    let configSpaceDescription = "";
+    let dimension = 0;
+    
+    if (degree === 0) {
+      constraintDescription = "No constraints";
+      configSpaceDescription = "Free in ℝ³";
+      dimension = 3;
+    } else if (degree === 1) {
+      constraintDescription = `Fixed distance to ${neighborLabels[0]}`;
+      configSpaceDescription = `Sphere S² centered at ${neighborLabels[0]}`;
+      dimension = 2;
+    } else if (degree === 2) {
+      constraintDescription = `Fixed distance to ${neighborLabels[0]} and ${neighborLabels[1]}`;
+      configSpaceDescription = `Circle S¹ = intersection of spheres at ${neighborLabels[0]} and ${neighborLabels[1]}`;
+      dimension = 1;
+    } else {
+      constraintDescription = `Fixed distance to ${neighborLabels.join(", ")}`;
+      configSpaceDescription = `Intersection of ${degree} spheres (discrete points or empty)`;
+      dimension = 0;
+    }
+    
+    nodeAnalysis.push({
+      nodeLabel: label,
+      degree,
+      constraintDescription,
+      configSpaceDescription,
+      dimension,
+    });
+  });
+  
+  // Compute DOF (simplified - assumes generic position)
+  // Full config space dimension = 3n (3D positions for n nodes)
+  // Constraints = number of edges (each edge is 1 constraint)
+  // Trivial DOF = 6 in 3D (3 translation + 3 rotation)
+  const totalDOF = 3 * nodeCount;
+  const trivialDOF = Math.min(6, 3 * nodeCount); // Can't have more trivial than total
+  const constraints = edgeCount;
+  const internalDOF = Math.max(0, totalDOF - trivialDOF - constraints);
+  
+  // Structure description
+  let structureDescription = "";
+  if (nodeCount === 3 && edgeCount === 2) {
+    // Path graph P₃ (V-graph)
+    structureDescription = 
+      "Configuration space C = {(A,B,C) ∈ ℝ⁹ : |A-B| = L₁, |B-C| = L₂}\n" +
+      "After fixing A at origin and C on x-axis (mod rigid motions):\n" +
+      "C ≅ S¹ (circle) — the intersection of two spheres\n" +
+      "The cyan circle shows this configuration space for the middle node.";
+  } else if (edgeCount >= 3 * nodeCount - 6) {
+    structureDescription = 
+      "This graph is rigid (or over-constrained).\n" +
+      "Configuration space consists of isolated points.";
+  } else {
+    structureDescription = 
+      `Configuration space C has internal DOF = ${internalDOF}.\n` +
+      "The space is the intersection of sphere constraints for each edge.";
+  }
+  
+  // Special points description (for dimension folding)
+  const specialPointsDescription = 
+    "Special points in C are configurations where all nodes lie in a lower-dimensional subspace:\n" +
+    "• C₂ ⊂ C: configurations where nodes span a 2D plane\n" +
+    "• C₁ ⊂ C: configurations where nodes are collinear (1D line)\n" +
+    "• Folding = finding a path in C from generic point to C₁ or C₂";
+  
+  return {
+    totalDOF,
+    trivialDOF,
+    internalDOF,
+    nodeAnalysis,
+    structureDescription,
+    specialPointsDescription,
+  };
+}
+
+// ============================================================================
+// Arc Visualization (for transformation paths)
+// ============================================================================
+
+/**
+ * Represents an arc path on a sphere (great circle arc).
+ */
+export interface SphereArc {
+  /** Center of the sphere (the constraining neighbor) */
+  center: THREE.Vector3;
+  /** Radius of the sphere (edge length) */
+  radius: number;
+  /** Starting position on the sphere */
+  startPoint: THREE.Vector3;
+  /** Ending position on the sphere */
+  endPoint: THREE.Vector3;
+  /** Angle swept by the arc (radians) */
+  angle: number;
+  /** Axis of rotation (normal to the plane containing the arc) */
+  axis: THREE.Vector3;
+}
+
+/**
+ * Compute the arc path on a sphere from start to end position.
+ * The arc follows a great circle (shortest path on sphere).
+ * 
+ * @param sphereCenter - Center of the constraint sphere
+ * @param startPos - Starting position of the node
+ * @param endPos - Ending position of the node
+ * @returns Arc data or null if positions don't lie on same sphere
+ */
+export function computeSphereArc(
+  sphereCenter: THREE.Vector3,
+  startPos: THREE.Vector3,
+  endPos: THREE.Vector3
+): SphereArc | null {
+  // Compute vectors from center to start and end
+  const startVec = startPos.clone().sub(sphereCenter);
+  const endVec = endPos.clone().sub(sphereCenter);
+  
+  const radius = startVec.length();
+  const endRadius = endVec.length();
+  
+  // Check that both points are on the same sphere (within tolerance)
+  if (Math.abs(radius - endRadius) > 0.01) {
+    console.warn("Start and end positions are not on the same sphere");
+    return null;
+  }
+  
+  if (radius < 0.001) return null;
+  
+  // Normalize to get unit vectors
+  const startUnit = startVec.clone().normalize();
+  const endUnit = endVec.clone().normalize();
+  
+  // Compute the angle between them
+  const dot = Math.max(-1, Math.min(1, startUnit.dot(endUnit)));
+  const angle = Math.acos(dot);
+  
+  // Compute the rotation axis (perpendicular to both vectors)
+  const axis = new THREE.Vector3().crossVectors(startUnit, endUnit);
+  
+  // Handle case where start and end are the same or opposite
+  if (axis.length() < 0.0001) {
+    // Points are collinear with center - pick arbitrary perpendicular axis
+    axis.set(1, 0, 0);
+    if (Math.abs(startUnit.dot(axis)) > 0.9) {
+      axis.set(0, 1, 0);
+    }
+    axis.cross(startUnit).normalize();
+  } else {
+    axis.normalize();
+  }
+  
+  return {
+    center: sphereCenter.clone(),
+    radius,
+    startPoint: startPos.clone(),
+    endPoint: endPos.clone(),
+    angle,
+    axis,
+  };
+}
+
+/**
+ * Interpolate a position along a sphere arc.
+ * 
+ * @param arc - The arc to interpolate along
+ * @param t - Interpolation factor (0 = start, 1 = end)
+ * @returns Position on the arc
+ */
+export function interpolateArc(arc: SphereArc, t: number): THREE.Vector3 {
+  // Get the starting vector from center
+  const startVec = arc.startPoint.clone().sub(arc.center);
+  
+  // Create quaternion for rotation around axis
+  const quaternion = new THREE.Quaternion();
+  quaternion.setFromAxisAngle(arc.axis, arc.angle * t);
+  
+  // Rotate the start vector
+  const rotatedVec = startVec.applyQuaternion(quaternion);
+  
+  // Add back the center to get world position
+  return rotatedVec.add(arc.center);
+}
+
+/**
+ * Create a visual arc on a sphere showing the transformation path.
+ * 
+ * @param scene - Three.js scene
+ * @param arc - Arc data
+ * @param color - Color of the arc
+ * @param segments - Number of line segments
+ * @returns The created line object
+ */
+export function createArcVisualization(
+  scene: THREE.Scene,
+  arc: SphereArc,
+  color: number = 0xff6600,
+  segments: number = 32
+): THREE.Line {
+  const points: THREE.Vector3[] = [];
+  
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    points.push(interpolateArc(arc, t));
+  }
+  
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  const material = new THREE.LineBasicMaterial({
+    color,
+    linewidth: 3,
+  });
+  
+  const line = new THREE.Line(geometry, material);
+  scene.add(line);
+  
+  return line;
+}
+
+/**
+ * Create an arrow at the end of an arc to show direction.
+ */
+export function createArcArrow(
+  scene: THREE.Scene,
+  arc: SphereArc,
+  color: number = 0xff6600
+): THREE.ArrowHelper {
+  // Get direction at end of arc (tangent)
+  const nearEnd = interpolateArc(arc, 0.95);
+  const end = arc.endPoint;
+  const direction = end.clone().sub(nearEnd).normalize();
+  
+  const arrow = new THREE.ArrowHelper(
+    direction,
+    end,
+    0.15, // length
+    color,
+    0.08, // head length
+    0.05  // head width
+  );
+  
+  scene.add(arrow);
+  return arrow;
+}
+
+/**
+ * Compute transformation arcs for all moving nodes.
+ * For each node that moves, find its constraining sphere and compute the arc.
+ * 
+ * @param graph - The graph
+ * @param nodeMeshMap - Map of node IDs to meshes
+ * @param startPositions - Starting positions (by label)
+ * @param endPositions - Ending positions (by label)
+ * @returns Array of arcs for visualization
+ */
+export function computeTransformationArcs(
+  graph: Graph,
+  nodeMeshMap: { [nodeId: string]: THREE.Mesh },
+  startPositions: { [label: string]: [number, number, number] },
+  endPositions: { [label: string]: [number, number, number] }
+): { nodeLabel: string; arc: SphereArc }[] {
+  const arcs: { nodeLabel: string; arc: SphereArc }[] = [];
+  
+  graph.forEachNode((nodeId, attr) => {
+    const label = attr.label as string;
+    const start = startPositions[label];
+    const end = endPositions[label];
+    
+    if (!start || !end) return;
+    
+    // Check if this node actually moves
+    const dx = end[0] - start[0];
+    const dy = end[1] - start[1];
+    const dz = end[2] - start[2];
+    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    
+    if (distance < 0.01) return; // Node doesn't move significantly
+    
+    // Find a neighbor that doesn't move (or moves less) - this is the constraint center
+    const neighbors = Array.from(graph.neighbors(nodeId));
+    
+    for (const neighborId of neighbors) {
+      const neighborLabel = graph.getNodeAttribute(neighborId, "label") as string;
+      const neighborStart = startPositions[neighborLabel];
+      const neighborEnd = endPositions[neighborLabel];
+      
+      if (!neighborStart || !neighborEnd) continue;
+      
+      // Check if neighbor moves
+      const ndx = neighborEnd[0] - neighborStart[0];
+      const ndy = neighborEnd[1] - neighborStart[1];
+      const ndz = neighborEnd[2] - neighborStart[2];
+      const neighborDistance = Math.sqrt(ndx * ndx + ndy * ndy + ndz * ndz);
+      
+      // If neighbor moves less, use it as the constraint center
+      // For simplicity, we'll use the neighbor's starting position as sphere center
+      // (This is a simplification - in reality the sphere moves with the neighbor)
+      if (neighborDistance < distance * 0.5) {
+        const sphereCenter = new THREE.Vector3(neighborStart[0], neighborStart[1], neighborStart[2]);
+        const startPoint = new THREE.Vector3(start[0], start[1], start[2]);
+        const endPoint = new THREE.Vector3(end[0], end[1], end[2]);
+        
+        const arc = computeSphereArc(sphereCenter, startPoint, endPoint);
+        if (arc) {
+          arcs.push({ nodeLabel: label, arc });
+          break; // Only need one constraint per moving node
+        }
+      }
+    }
+  });
+  
+  return arcs;
 }

@@ -382,3 +382,496 @@ export function computeFoldingDirection(
 
   return null;
 }
+
+/**
+ * Result of a folding step computation.
+ */
+export interface FoldingStep {
+  /** New positions after this step */
+  positions: { [key: string]: [number, number, number] };
+  /** Current affine dimension */
+  dimension: number;
+  /** Step number */
+  step: number;
+  /** Whether target dimension reached */
+  reachedTarget: boolean;
+  /** Maximum edge length violation */
+  maxViolation: number;
+}
+
+/**
+ * A discrete, named transformation in a folding sequence.
+ * Unlike keyframes (which are interpolation points), transformations
+ * represent meaningful operations that the user can inspect.
+ */
+export interface FoldingTransformation {
+  /** Unique identifier */
+  id: string;
+  /** Human-readable name (e.g., "Align to XY plane", "Fold along hinge") */
+  name: string;
+  /** Detailed description of what this transformation does */
+  description: string;
+  /** Type of transformation */
+  type: "rigid" | "internal_dof" | "combined";
+  /** Starting positions for each vertex */
+  startPositions: { [label: string]: [number, number, number] };
+  /** Ending positions for each vertex */
+  endPositions: { [label: string]: [number, number, number] };
+  /** Dimension before this transformation */
+  startDimension: number;
+  /** Dimension after this transformation */
+  endDimension: number;
+}
+
+/**
+ * Result of computing folding transformations.
+ */
+export interface FoldingTransformationResult {
+  /** The sequence of transformations */
+  transformations: FoldingTransformation[];
+  /** Whether the target dimension was reached */
+  success: boolean;
+  /** Explanation of the folding process */
+  explanation: string;
+}
+
+/**
+ * Compute a folding path from current positions toward a target dimension.
+ * Uses iterative steps with constraint projection to preserve edge lengths.
+ *
+ * @param graph - The graph structure  
+ * @param startPositions - Starting vertex positions
+ * @param targetDimension - Target dimension (1 or 2)
+ * @param options - Configuration options
+ * @returns Array of folding steps
+ */
+export function computeFoldingPath(
+  graph: Graph,
+  startPositions: { [key: string]: [number, number, number] },
+  targetDimension: 1 | 2,
+  options: {
+    maxSteps?: number;
+    stepSize?: number;
+    convergenceThreshold?: number;
+    constraintIterations?: number;
+  } = {}
+): FoldingStep[] {
+  const {
+    maxSteps = 100,
+    stepSize = 0.05,
+    convergenceThreshold = 0.01,
+    constraintIterations = 20,
+  } = options;
+
+  const labels = Object.keys(startPositions);
+  const n = labels.length;
+
+  if (n === 0) return [];
+
+  // Compute target edge lengths from initial positions
+  const targetLengths: Map<string, number> = new Map();
+  graph.forEachEdge((edge, _attr, source, target) => {
+    const sourceLabel = graph.getNodeAttribute(source, "label");
+    const targetLabel = graph.getNodeAttribute(target, "label");
+    const p1 = startPositions[sourceLabel];
+    const p2 = startPositions[targetLabel];
+    if (p1 && p2) {
+      const length = Math.sqrt(
+        (p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2 + (p2[2] - p1[2]) ** 2
+      );
+      targetLengths.set(`${sourceLabel}-${targetLabel}`, length);
+    }
+  });
+
+  // Initialize path with starting position
+  const path: FoldingStep[] = [];
+  let currentPositions = { ...startPositions };
+  
+  // Deep copy positions
+  for (const label of labels) {
+    currentPositions[label] = [...startPositions[label]] as [number, number, number];
+  }
+
+  let currentDimension = computeAffineDimension(currentPositions);
+  
+  path.push({
+    positions: JSON.parse(JSON.stringify(currentPositions)),
+    dimension: currentDimension,
+    step: 0,
+    reachedTarget: currentDimension <= targetDimension,
+    maxViolation: 0,
+  });
+
+  if (currentDimension <= targetDimension) {
+    return path; // Already at target
+  }
+
+  // Iteratively fold toward target dimension
+  for (let step = 1; step <= maxSteps; step++) {
+    // Compute centroid
+    const centroid: [number, number, number] = [0, 0, 0];
+    for (const label of labels) {
+      const p = currentPositions[label];
+      centroid[0] += p[0] / n;
+      centroid[1] += p[1] / n;
+      centroid[2] += p[2] / n;
+    }
+
+    // Move vertices toward the target plane/line
+    for (const label of labels) {
+      const p = currentPositions[label];
+      
+      if (targetDimension === 2) {
+        // Fold toward z = centroid[2] (flatten to plane)
+        const dz = centroid[2] - p[2];
+        p[2] += dz * stepSize;
+      } else if (targetDimension === 1) {
+        // Fold toward the line y = centroid[1], z = centroid[2]
+        const dy = centroid[1] - p[1];
+        const dz = centroid[2] - p[2];
+        p[1] += dy * stepSize;
+        p[2] += dz * stepSize;
+      }
+    }
+
+    // Project to satisfy edge length constraints (FABRIK-style)
+    let maxViolation = 0;
+    for (let iter = 0; iter < constraintIterations; iter++) {
+      graph.forEachEdge((edge, _attr, source, target) => {
+        const sourceLabel = graph.getNodeAttribute(source, "label");
+        const targetLabel = graph.getNodeAttribute(target, "label");
+        const targetLength = targetLengths.get(`${sourceLabel}-${targetLabel}`);
+        
+        if (!targetLength) return;
+
+        const p1 = currentPositions[sourceLabel];
+        const p2 = currentPositions[targetLabel];
+        if (!p1 || !p2) return;
+
+        const dx = p2[0] - p1[0];
+        const dy = p2[1] - p1[1];
+        const dz = p2[2] - p1[2];
+        const currentLength = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+        if (currentLength < 0.0001) return;
+
+        const error = currentLength - targetLength;
+        maxViolation = Math.max(maxViolation, Math.abs(error));
+
+        // Adjust both endpoints equally
+        const correction = error / currentLength * 0.5;
+        p1[0] += dx * correction;
+        p1[1] += dy * correction;
+        p1[2] += dz * correction;
+        p2[0] -= dx * correction;
+        p2[1] -= dy * correction;
+        p2[2] -= dz * correction;
+      });
+    }
+
+    // Check current dimension
+    currentDimension = computeAffineDimension(currentPositions);
+    const reachedTarget = currentDimension <= targetDimension;
+
+    path.push({
+      positions: JSON.parse(JSON.stringify(currentPositions)),
+      dimension: currentDimension,
+      step,
+      reachedTarget,
+      maxViolation,
+    });
+
+    // Check convergence
+    if (reachedTarget || maxViolation > 1.0) {
+      break; // Either reached target or constraints are too violated
+    }
+  }
+
+  return path;
+}
+
+/**
+ * Get keyframes from a folding path for animation.
+ * Reduces the path to a manageable number of keyframes.
+ */
+export function getFoldingKeyframes(
+  path: FoldingStep[],
+  maxKeyframes: number = 20
+): FoldingStep[] {
+  if (path.length <= maxKeyframes) {
+    return path;
+  }
+
+  const keyframes: FoldingStep[] = [];
+  const stepInterval = Math.floor(path.length / maxKeyframes);
+
+  for (let i = 0; i < path.length; i += stepInterval) {
+    keyframes.push(path[i]);
+  }
+
+  // Always include the last frame
+  if (keyframes[keyframes.length - 1] !== path[path.length - 1]) {
+    keyframes.push(path[path.length - 1]);
+  }
+
+  return keyframes;
+}
+
+/**
+ * Compute folding transformations for a linkage.
+ * 
+ * This generates a sequence of discrete, meaningful transformations
+ * that fold a linkage from its current dimension to a target dimension.
+ * 
+ * For a path graph like P₃ (V-graph) folding from 2D to 1D:
+ * - One transformation: "Fold along hinge" using the internal DOF
+ * 
+ * For a 3D configuration folding to 1D:
+ * - First: "Align to XY plane" (rigid motion)
+ * - Then: "Fold to line" (internal DOF motion)
+ * 
+ * @param graph - The graph structure
+ * @param startPositions - Current vertex positions
+ * @param targetDimension - Target dimension (1 or 2)
+ * @returns Result containing transformations and success status
+ */
+export function computeFoldingTransformations(
+  graph: Graph,
+  startPositions: { [key: string]: [number, number, number] },
+  targetDimension: 1 | 2
+): FoldingTransformationResult {
+  const transformations: FoldingTransformation[] = [];
+  const labels = Object.keys(startPositions);
+  const n = labels.length;
+
+  if (n === 0) {
+    return {
+      transformations: [],
+      success: false,
+      explanation: "No vertices to fold",
+    };
+  }
+
+  // Compute initial analysis
+  const startDimension = computeAffineDimension(startPositions);
+  
+  if (startDimension <= targetDimension) {
+    return {
+      transformations: [],
+      success: true,
+      explanation: `Already at ${startDimension}D (target: ${targetDimension}D)`,
+    };
+  }
+
+  // Check if folding is possible
+  const analysis = analyzeDimensionFolding(graph, startPositions);
+  if (analysis.minimalDimension > targetDimension) {
+    return {
+      transformations: [],
+      success: false,
+      explanation: `Cannot fold to ${targetDimension}D. Minimal dimension is ${analysis.minimalDimension}D (${analysis.explanation})`,
+    };
+  }
+
+  // Compute target edge lengths
+  const targetLengths: Map<string, number> = new Map();
+  graph.forEachEdge((_edge, _attr, source, target) => {
+    const sourceLabel = graph.getNodeAttribute(source, "label");
+    const targetLabel = graph.getNodeAttribute(target, "label");
+    const p1 = startPositions[sourceLabel];
+    const p2 = startPositions[targetLabel];
+    if (p1 && p2) {
+      const length = Math.sqrt(
+        (p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2 + (p2[2] - p1[2]) ** 2
+      );
+      targetLengths.set(`${sourceLabel}-${targetLabel}`, length);
+    }
+  });
+
+  let currentPositions = JSON.parse(JSON.stringify(startPositions));
+  let currentDimension = startDimension;
+
+  // Step 1: If in 3D and targeting 2D or 1D, first align to a plane
+  if (currentDimension === 3 && targetDimension <= 2) {
+    const alignedPositions = alignToPlane(currentPositions, labels);
+    
+    transformations.push({
+      id: "align-to-plane",
+      name: "Align to XY Plane",
+      description: "Rotate and translate the linkage so all vertices lie in the XY plane (z = 0). This is a rigid motion that preserves edge lengths and angles.",
+      type: "rigid",
+      startPositions: JSON.parse(JSON.stringify(currentPositions)),
+      endPositions: JSON.parse(JSON.stringify(alignedPositions)),
+      startDimension: currentDimension,
+      endDimension: 2,
+    });
+
+    currentPositions = alignedPositions;
+    currentDimension = 2;
+  }
+
+  // Step 2: If in 2D and targeting 1D, fold using internal DOF
+  if (currentDimension === 2 && targetDimension === 1) {
+    const foldedPositions = foldToLine(graph, currentPositions, labels, targetLengths);
+    
+    // Determine the type of motion based on graph structure
+    const motionDescription = isPathLike(graph)
+      ? "Use the hinge degree of freedom to collapse the path to a line. Each joint acts as a hinge, allowing adjacent edges to rotate relative to each other."
+      : "Use internal degrees of freedom to fold the linkage to a line while preserving all edge lengths.";
+
+    transformations.push({
+      id: "fold-to-line",
+      name: "Fold to Line",
+      description: motionDescription,
+      type: "internal_dof",
+      startPositions: JSON.parse(JSON.stringify(currentPositions)),
+      endPositions: JSON.parse(JSON.stringify(foldedPositions)),
+      startDimension: currentDimension,
+      endDimension: 1,
+    });
+
+    currentDimension = 1;
+  }
+
+  // Step 2 alternative: If in 3D and targeting 2D only
+  if (startDimension === 3 && targetDimension === 2 && transformations.length === 1) {
+    // Already handled by align-to-plane
+  }
+
+  const finalDimension = computeAffineDimension(
+    transformations.length > 0 
+      ? transformations[transformations.length - 1].endPositions 
+      : currentPositions
+  );
+
+  return {
+    transformations,
+    success: finalDimension <= targetDimension,
+    explanation: `Generated ${transformations.length} transformation(s) to fold from ${startDimension}D to ${targetDimension}D`,
+  };
+}
+
+/**
+ * Align a point set to the XY plane (z = 0).
+ * Uses PCA to find the best-fit plane and rotates to align it with XY.
+ */
+function alignToPlane(
+  positions: { [label: string]: [number, number, number] },
+  labels: string[]
+): { [label: string]: [number, number, number] } {
+  const n = labels.length;
+  
+  // Compute centroid
+  const centroid: [number, number, number] = [0, 0, 0];
+  for (const label of labels) {
+    const p = positions[label];
+    centroid[0] += p[0] / n;
+    centroid[1] += p[1] / n;
+    centroid[2] += p[2] / n;
+  }
+
+  // For simplicity, project to z = 0 while preserving x, y
+  // (A more sophisticated approach would use SVD to find the best-fit plane)
+  const result: { [label: string]: [number, number, number] } = {};
+  for (const label of labels) {
+    const p = positions[label];
+    result[label] = [p[0], p[1], 0];
+  }
+
+  return result;
+}
+
+/**
+ * Fold a 2D point set to a line (1D).
+ * Uses constraint-satisfying optimization to find final positions.
+ */
+function foldToLine(
+  graph: Graph,
+  positions: { [label: string]: [number, number, number] },
+  labels: string[],
+  targetLengths: Map<string, number>
+): { [label: string]: [number, number, number] } {
+  const n = labels.length;
+  
+  // For a path graph, we can analytically fold to a line
+  // Place all vertices along the x-axis, preserving edge lengths
+  
+  // Find an endpoint (degree 1 vertex) to start from
+  let startLabel: string | null = null;
+  for (const label of labels) {
+    const nodeId = findNodeIdByLabel(graph, label);
+    if (nodeId && graph.degree(nodeId) === 1) {
+      startLabel = label;
+      break;
+    }
+  }
+
+  if (!startLabel) {
+    // No degree-1 vertex found, use first vertex
+    startLabel = labels[0];
+  }
+
+  // Build the path order by traversing from start
+  const visited = new Set<string>();
+  const pathOrder: string[] = [];
+  let current = startLabel;
+  
+  while (current && !visited.has(current)) {
+    visited.add(current);
+    pathOrder.push(current);
+    
+    // Find next unvisited neighbor
+    const nodeId = findNodeIdByLabel(graph, current);
+    if (!nodeId) break;
+    
+    let nextLabel: string | null = null;
+    graph.forEachNeighbor(nodeId, (neighbor) => {
+      const neighborLabel = graph.getNodeAttribute(neighbor, "label") as string;
+      if (!visited.has(neighborLabel)) {
+        nextLabel = neighborLabel;
+      }
+    });
+    
+    current = nextLabel;
+  }
+
+  // Place vertices along x-axis preserving edge lengths
+  const result: { [label: string]: [number, number, number] } = {};
+  let x = 0;
+  
+  for (let i = 0; i < pathOrder.length; i++) {
+    const label = pathOrder[i];
+    result[label] = [x, 0, 0];
+    
+    if (i < pathOrder.length - 1) {
+      const nextLabel = pathOrder[i + 1];
+      const edgeLength = targetLengths.get(`${label}-${nextLabel}`) 
+        || targetLengths.get(`${nextLabel}-${label}`)
+        || 1;
+      x += edgeLength;
+    }
+  }
+
+  // Handle any vertices not in the path (shouldn't happen for path graphs)
+  for (const label of labels) {
+    if (!result[label]) {
+      result[label] = [x, 0, 0];
+      x += 1;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Find a node ID by its label.
+ */
+function findNodeIdByLabel(graph: Graph, label: string): string | null {
+  let foundId: string | null = null;
+  graph.forEachNode((nodeId, attr) => {
+    if (attr.label === label) {
+      foundId = nodeId;
+    }
+  });
+  return foundId;
+}

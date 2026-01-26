@@ -14,6 +14,40 @@ Build an interactive platform that allows researchers and students to:
 
 ---
 
+## Core Research Goal: Path-Connectedness in Configuration Space
+
+The ultimate aim of this project is to answer the **dimension folding problem**:
+
+> Given a linkage in ℝᵈ, find the minimal dimension ℝᵏ (k ≤ d) into which it can be continuously deformed while preserving edge lengths.
+
+### Mathematical Formulation
+
+1. **Configuration Space**: C = {p : V → ℝ³ | ||p(u) - p(v)|| = L(e) for all edges e}
+   - C is a real algebraic variety (intersection of sphere level sets)
+   - For simple graphs, C ≈ product of spheres with constraints
+
+2. **Dimension Strata**: C_k ⊂ C = configurations whose vertices span a k-dimensional affine subspace
+   - C_1 ⊂ C_2 ⊂ C_3 = C (nested subsets)
+   - "Folded" configurations lie in C_1 or C_2
+
+3. **The Question**: For a configuration p ∈ C_3, is there a continuous path in C from p to C_1 or C_2?
+   - This is a **path-connectedness** question
+   - If yes, the path IS the folding animation
+   - If no, the linkage cannot fold to lower dimension
+
+4. **Special Points**: The minimal-dimension configurations are "special points" in C
+   - These are the targets for our folding paths
+   - They may lie on singular loci of the configuration variety
+
+### What We're Building
+
+1. **Visualize C** through the constraint spheres and intersection circles
+2. **Navigate C** through the folding animations (paths in C)
+3. **Find special points** by computing folding paths to minimal dimension
+4. **Analyze path-connectedness** to determine if folding is possible
+
+---
+
 ## Development Phases
 
 ### Phase 1: Visualization Foundation ✅ COMPLETE
@@ -48,7 +82,7 @@ Build an interactive platform that allows researchers and students to:
 
 ---
 
-### Phase 3: Motion Animation 🚧 IN PROGRESS
+### Phase 3: Motion Animation ✅ COMPLETE
 
 **Goal**: Animate linkages through their configuration space.
 
@@ -58,27 +92,31 @@ Build an interactive platform that allows researchers and students to:
 | Smooth interpolation between configurations | ✅ |
 | Playback controls (play/pause, speed, direction) | ✅ |
 | Scrubbing through transformation sequence | ✅ |
-| Constraint-preserving motion (edge-length preservation) | 🔲 |
-| Detection of rigid vs. flexible configurations | 🔲 |
-| Motion path visualization | 🔲 |
+| Constraint-preserving motion (edge-length preservation) | ✅ |
+| Detection of rigid vs. flexible configurations | ✅ |
+| Motion path visualization (arcs on spheres) | ✅ |
 
 **Deliverable**: Animate linkages along valid configuration paths while preserving bar lengths.
 
-**Key Technical Challenge**: Current transformations (rotation, scale, translation) do NOT preserve edge lengths. Need to implement iterative constraint projection (e.g., FABRIK-style solver or gradient descent on constraint violations).
+**Implementation**: 
+- Transformations are now discrete, meaningful operations with start/end positions
+- Folding uses FABRIK-style constraint projection to preserve edge lengths
+- Arc interpolation along constraint spheres for visually accurate motion
+- Orange arcs drawn on spheres showing the exact path through configuration space
 
 ---
 
-### Phase 4: Rigidity Analysis 📋 PLANNED
+### Phase 4: Rigidity Analysis ✅ COMPLETE
 
 **Goal**: Compute and display rigidity properties of frameworks.
 
 | Milestone | Status |
 |-----------|--------|
-| Rigidity matrix computation | 🔲 |
-| Rigidity matrix display in UI | 🔲 |
-| Matrix rank computation | 🔲 |
-| Infinitesimal rigidity determination | 🔲 |
-| Degrees of freedom (DOF) calculation | 🔲 |
+| Rigidity matrix computation | ✅ |
+| Rigidity matrix display in UI | ✅ |
+| Matrix rank computation | ✅ |
+| Infinitesimal rigidity determination | ✅ |
+| Degrees of freedom (DOF) calculation | ✅ |
 | Null space visualization (infinitesimal motions) | 🔲 |
 | Rigid component identification | 🔲 |
 | Maxwell counting rule display | 🔲 |
@@ -92,17 +130,19 @@ Build an interactive platform that allows researchers and students to:
 
 ---
 
-### Phase 5: Dimension Folding 📋 PLANNED
+### Phase 5: Dimension Folding 🚧 IN PROGRESS
 
 **Goal**: Explore the central research question—finding minimal embedding dimensions.
 
 | Milestone | Status |
 |-----------|--------|
-| Dimension reduction feasibility check | 🔲 |
-| Folding path computation algorithm | 🔲 |
-| Continuous folding animation | 🔲 |
-| Minimal dimension display | 🔲 |
-| Folding trajectory visualization | 🔲 |
+| Dimension reduction feasibility check | ✅ |
+| Folding path computation algorithm | ✅ |
+| Continuous folding animation | ✅ |
+| Minimal dimension display | ✅ |
+| Arc path visualization on constraint spheres | ✅ |
+| Transformation-based folding (discrete, inspectable steps) | ✅ |
+| Folding trajectory visualization in config space | 🔲 |
 | Dimension comparison view (side-by-side) | 🔲 |
 | Stress-based folding heuristics | 🔲 |
 
@@ -112,6 +152,12 @@ Build an interactive platform that allows researchers and students to:
 1. What is the complexity of computing minimal folding dimension?
 2. When is a framework "foldable" to a lower dimension?
 3. Can we characterize graphs by their folding trajectories?
+
+**Current Implementation**:
+- Transformations are discrete, named operations (e.g., "Fold to Line")
+- Each transformation is typed: "Rigid" (translate/rotate) or "Internal DOF" (uses flexibility)
+- Arc paths are drawn on constraint spheres showing the configuration space trajectory
+- Animation interpolates along sphere arcs (not linear), preserving constraints
 
 ---
 
@@ -136,7 +182,37 @@ Build an interactive platform that allows researchers and students to:
 
 ---
 
-### Phase 7: Advanced Analysis 📋 FUTURE
+### Phase 7: Configuration Space Exploration ⚡ HIGH PRIORITY
+
+**Goal**: Understand and visualize the configuration space of linkages to find dimension-folding paths.
+
+**Core Research Question**: Given a linkage configuration, find a continuous path through configuration space to a minimal-dimensional embedding.
+
+| Milestone | Status |
+|-----------|--------|
+| Configuration space info panel (product/intersection structure) | 🔲 |
+| Pin node functionality (fix node, see reduced config space) | 🔲 |
+| Special points identification (minimal dimension configurations) | 🔲 |
+| Path-connectedness analysis between configurations | 🔲 |
+| Folding path visualization in configuration space | 🔲 |
+| Gradient descent to find minimal dimension configs | 🔲 |
+| Connected component detection in config space | 🔲 |
+| Topology of configuration space (genus, components) | 🔲 |
+
+**Deliverable**: Tools to explore configuration space, find special points (minimal dimensions), and trace paths between configurations.
+
+**Mathematical Framework**:
+- Configuration space C = {p : ||p(u) - p(v)|| = L(e) ∀ edges e}
+- C is the intersection of level sets of distance functions
+- For path graph: C ≈ S² × S² (product of spheres)
+- Special points: C_k ⊂ C where config lies in k-dimensional affine subspace
+- Goal: Find path in C from generic point to C_k for minimal k
+
+**Key Insight**: The spheres we already visualize ARE the configuration space! The folding motion is a path through this space. The intersection circles show where constraints overlap.
+
+---
+
+### Phase 8: Advanced Analysis 📋 FUTURE
 
 **Goal**: Deeper mathematical exploration and research tools.
 
@@ -148,11 +224,11 @@ Build an interactive platform that allows researchers and students to:
 | Matroid operations (deletion, contraction) | 🔲 |
 | Global rigidity analysis | 🔲 |
 | Cayley-Menger determinant computation | 🔲 |
-| Configuration space topology | 🔲 |
+| Full configuration space topology visualization | 🔲 |
 
 ---
 
-### Phase 8: Polish & Sharing 📋 FUTURE
+### Phase 9: Polish & Sharing 📋 FUTURE
 
 **Goal**: Production-ready application with collaboration features.
 
@@ -168,23 +244,27 @@ Build an interactive platform that allows researchers and students to:
 
 ---
 
-## Current Priority: Phase 3 Completion
+## Current Priority: Phase 7 - Configuration Space Exploration
 
-The immediate focus should be completing **constraint-preserving motion**. This is the foundation for all subsequent folding exploration.
+Phases 3-5 have substantial progress. The next frontier is **understanding and visualizing the configuration space** to find dimension-folding paths.
 
 ### Recommended Approach
 
-1. **Implement edge-length constraint projection**
-   - Use iterative relaxation (FABRIK-style or position-based dynamics)
-   - After each animation frame, project positions back to constraint manifold
+1. **Add Configuration Space Panel**
+   - Explain the product/intersection structure for current graph
+   - Show how spheres and circles represent the configuration space
 
-2. **Add rigidity detection**
-   - Compute rigidity matrix rank
-   - Display rigid vs. flexible status
+2. **Pin Node Functionality**
+   - Let user fix a node and see how it constrains others
+   - Visualize the fiber structure of the configuration space
 
-3. **Motion along DOF**
-   - For flexible frameworks, compute null space of rigidity matrix
-   - Allow motion only along infinitesimal flex directions
+3. **Special Points Detection**
+   - Identify configurations at minimal dimension
+   - Highlight when current config is a "special point"
+
+4. **Path-Connectedness Tools**
+   - Visualize folding paths as trajectories through configuration space
+   - Detect when folding is impossible (disconnected components)
 
 ---
 
